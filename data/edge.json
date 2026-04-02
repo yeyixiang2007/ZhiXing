@@ -1,0 +1,7 @@
+[
+  {"fromId": "GATE_E", "toId": "LIB", "weight": 220.0, "oneWay": false, "forbidden": false, "roadType": "MAIN_ROAD"},
+  {"fromId": "LIB", "toId": "CAN_2", "weight": 260.0, "oneWay": true, "forbidden": false, "roadType": "MAIN_ROAD"},
+  {"fromId": "LIB", "toId": "TB_A", "weight": 180.0, "oneWay": false, "forbidden": false, "roadType": "PATH"},
+  {"fromId": "TB_A", "toId": "CAN_2", "weight": 150.0, "oneWay": false, "forbidden": false, "roadType": "PATH"}
+]
+

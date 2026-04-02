@@ -1,0 +1,7 @@
+[
+  {"id": "CAN_2", "name": "Second Canteen", "type": "CANTEEN", "x": 420.0, "y": 260.0, "description": "Dining hall"},
+  {"id": "GATE_E", "name": "East Gate", "type": "GATE", "x": 0.0, "y": 0.0, "description": "Main entrance"},
+  {"id": "LIB", "name": "Library", "type": "LIBRARY", "x": 180.0, "y": 120.0, "description": "Central library"},
+  {"id": "TB_A", "name": "Teaching Building A", "type": "TEACHING_BUILDING", "x": 320.0, "y": 180.0, "description": "Classrooms"}
+]
+

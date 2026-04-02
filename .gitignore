@@ -1,0 +1,10 @@
+# Build output
+/out/
+/target/
+/build/
+
+# IDE
+/.idea/
+*.iml
+/.vscode/*.log
+

@@ -1,0 +1,10 @@
+{
+  "java.project.sourcePaths": [
+    "src/main/java",
+    "src/test/java"
+  ],
+  "java.project.outputPath": "out",
+  "java.configuration.updateBuildConfiguration": "interactive",
+  "files.encoding": "utf8"
+}
+
