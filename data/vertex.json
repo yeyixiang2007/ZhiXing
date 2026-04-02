@@ -1,7 +1,6 @@
 [
   {"id": "CAN_2", "name": "Second Canteen", "type": "CANTEEN", "x": 420.0, "y": 260.0, "description": "Dining hall"},
-  {"id": "GATE_E", "name": "East Gate", "type": "GATE", "x": 0.0, "y": 0.0, "description": "Main entrance"},
-  {"id": "LIB", "name": "Library", "type": "LIBRARY", "x": 180.0, "y": 120.0, "description": "Central library"},
-  {"id": "TB_A", "name": "Teaching Building A", "type": "TEACHING_BUILDING", "x": 320.0, "y": 180.0, "description": "Classrooms"}
+  {"id": "GATE_E", "name": "East Gate", "type": "GATE", "x": 125.80357142857142, "y": -75.35714285714286, "description": "Main entrance"},
+  {"id": "LIB", "name": "Library", "type": "LIBRARY", "x": 127.85714285714286, "y": 236.78571428571428, "description": "Central library"},
+  {"id": "TB_A", "name": "Teaching Building A", "type": "TEACHING_BUILDING", "x": 311.6517857142857, "y": 49.91071428571428, "description": "Classrooms"}
 ]
-

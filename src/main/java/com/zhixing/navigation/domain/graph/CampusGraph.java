@@ -30,6 +30,7 @@ public class CampusGraph {
         String id = vertex.getId();
         ensureVertexExists(id);
         vertices.put(id, vertex);
+        relinkEdgesForVertex(id, vertex);
     }
 
     public void removeVertex(String id) {
@@ -150,6 +151,23 @@ public class CampusGraph {
         return false;
     }
 
+    private void relinkEdgesForVertex(String vertexId, Vertex latestVertex) {
+        for (Map.Entry<String, List<Edge>> entry : adjList.entrySet()) {
+            List<Edge> edges = entry.getValue();
+            for (int i = 0; i < edges.size(); i++) {
+                Edge current = edges.get(i);
+                boolean fromMatched = current.getFromVertex().getId().equals(vertexId);
+                boolean toMatched = current.getToVertex().getId().equals(vertexId);
+                if (!fromMatched && !toMatched) {
+                    continue;
+                }
+                Vertex from = fromMatched ? latestVertex : current.getFromVertex();
+                Vertex to = toMatched ? latestVertex : current.getToVertex();
+                edges.set(i, new Edge(from, to, current.getWeight(), current.isOneWay(), current.isForbidden(), current.getRoadType()));
+            }
+        }
+    }
+
     private void ensureVertexExists(String id) {
         if (!vertices.containsKey(id)) {
             throw new IllegalArgumentException("vertex not found: " + id);
@@ -163,4 +181,3 @@ public class CampusGraph {
         return value.trim();
     }
 }
-

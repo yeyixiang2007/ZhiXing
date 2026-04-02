@@ -123,6 +123,18 @@ public class VertexManageView extends JPanel {
         descriptionField.setText("");
     }
 
+    public void fillFromVertex(Vertex vertex) {
+        if (vertex == null) {
+            return;
+        }
+        idField.setText(vertex.getId());
+        nameField.setText(vertex.getName());
+        typeCombo.setSelectedItem(vertex.getType());
+        xField.setText(String.valueOf(vertex.getX()));
+        yField.setText(String.valueOf(vertex.getY()));
+        descriptionField.setText(vertex.getDescription());
+    }
+
     private VertexFormData buildFormData() {
         return new VertexFormData(
                 safeTrim(idField.getText()),

@@ -94,6 +94,10 @@ public class MapCanvas extends JPanel {
     private int focusedRouteSegmentIndex;
     private boolean focusedSegmentVisible;
     private int focusedSegmentFlashCycle;
+    private EditToolMode editToolMode;
+    private String pendingEdgeStartVertexId;
+    private String draggingVertexId;
+    private boolean draggingVertexMoved;
 
     private Font labelFont;
     private boolean wasAntialias;
@@ -103,7 +107,8 @@ public class MapCanvas extends JPanel {
     private enum DragMode {
         NONE,
         PAN,
-        BOX_SELECT
+        BOX_SELECT,
+        MOVE_VERTEX
     }
 
     public MapCanvas() {
@@ -134,6 +139,10 @@ public class MapCanvas extends JPanel {
         this.focusedRouteSegmentIndex = -1;
         this.focusedSegmentVisible = true;
         this.focusedSegmentFlashCycle = 0;
+        this.editToolMode = EditToolMode.SELECT;
+        this.pendingEdgeStartVertexId = null;
+        this.draggingVertexId = null;
+        this.draggingVertexMoved = false;
 
         this.routeFlashTimer = new Timer(FLASH_INTERVAL_MS, e -> {
             focusedSegmentFlashCycle++;
@@ -188,6 +197,10 @@ public class MapCanvas extends JPanel {
         if (selectedEdgeKey != null && findEdgeByKey(selectedEdgeKey) == null) {
             selectedEdgeKey = null;
             selectionChanged = true;
+        }
+        if (pendingEdgeStartVertexId != null && !vertexIndex.containsKey(pendingEdgeStartVertexId)) {
+            pendingEdgeStartVertexId = null;
+            fireEdgeDraftChanged(null);
         }
         if (selectionChanged) {
             fireSelectionChanged();
@@ -256,6 +269,35 @@ public class MapCanvas extends JPanel {
         routeFlashTimer.restart();
         centerOnSegment(segmentIndex);
         repaint();
+    }
+
+    public EditToolMode editToolMode() {
+        return editToolMode;
+    }
+
+    public void setEditToolMode(EditToolMode mode) {
+        EditToolMode target = mode == null ? EditToolMode.SELECT : mode;
+        if (editToolMode == target) {
+            return;
+        }
+        editToolMode = target;
+        pendingEdgeStartVertexId = null;
+        draggingVertexId = null;
+        draggingVertexMoved = false;
+        dragMode = DragMode.NONE;
+        selectionRect = null;
+        fireEdgeDraftChanged(null);
+        repaint();
+    }
+
+    public List<String> selectedVertexIds() {
+        List<String> ids = new ArrayList<String>(selectedVertexIds);
+        Collections.sort(ids);
+        return ids;
+    }
+
+    public String selectedEdgeKey() {
+        return selectedEdgeKey;
     }
 
     public void setLayerVisible(Layer layer, boolean visible) {
@@ -621,6 +663,20 @@ public class MapCanvas extends JPanel {
                 }
             }
         }
+
+        if (pendingEdgeStartVertexId != null) {
+            Vertex seed = vertexIndex.get(pendingEdgeStartVertexId);
+            Point2D.Double seedPoint = project(seed);
+            if (seedPoint != null) {
+                int radius = 16;
+                int diameter = radius * 2;
+                int left = (int) Math.round(seedPoint.x) - radius;
+                int top = (int) Math.round(seedPoint.y) - radius;
+                g2.setColor(new Color(0, 191, 255, 180));
+                g2.setStroke(new BasicStroke(2.3f));
+                g2.drawOval(left, top, diameter, diameter);
+            }
+        }
     }
 
     private void drawSelectionRect(Graphics2D g2) {
@@ -657,11 +713,29 @@ public class MapCanvas extends JPanel {
                     dragMode = DragMode.PAN;
                     return;
                 }
-                if (SwingUtilities.isLeftMouseButton(event)) {
+
+                if (!SwingUtilities.isLeftMouseButton(event)) {
+                    return;
+                }
+
+                if (editToolMode == EditToolMode.MOVE_VERTEX) {
+                    Vertex vertex = findVertexAt(event.getPoint());
+                    if (vertex != null) {
+                        draggingVertexId = vertex.getId();
+                        draggingVertexMoved = false;
+                        dragMode = DragMode.MOVE_VERTEX;
+                        return;
+                    }
+                }
+
+                if (editToolMode == EditToolMode.SELECT) {
                     dragMode = DragMode.BOX_SELECT;
                     selectionRect = new Rectangle(event.getX(), event.getY(), 0, 0);
                     repaint(selectionRect);
+                    return;
                 }
+
+                dragMode = DragMode.NONE;
             }
 
             @Override
@@ -685,19 +759,41 @@ public class MapCanvas extends JPanel {
                     selectionRect = createRect(dragStartPoint, event.getPoint());
                     dragCurrentPoint = event.getPoint();
                     repaintUnion(oldRect, selectionRect);
+                    return;
+                }
+                if (dragMode == DragMode.MOVE_VERTEX) {
+                    if (draggingVertexId != null) {
+                        if (!draggingVertexMoved) {
+                            draggingVertexMoved = event.getPoint().distance(dragStartPoint) > 2.0;
+                        }
+                    }
                 }
             }
 
             @Override
             public void mouseReleased(MouseEvent event) {
                 if (dragMode == DragMode.PAN) {
-                    dragMode = DragMode.NONE;
-                    dragStartPoint = null;
-                    dragCurrentPoint = null;
+                    resetDragState();
                     return;
                 }
 
-                if (dragMode == DragMode.BOX_SELECT && SwingUtilities.isLeftMouseButton(event)) {
+                if (!SwingUtilities.isLeftMouseButton(event)) {
+                    resetDragState();
+                    return;
+                }
+
+                if (dragMode == DragMode.MOVE_VERTEX) {
+                    if (draggingVertexId != null && (draggingVertexMoved || event.getPoint().distance(dragStartPoint) > 2.0)) {
+                        Point2D.Double world = toWorld(event.getPoint());
+                        fireMoveVertexRequested(draggingVertexId, world.x, world.y);
+                    } else if (draggingVertexId != null) {
+                        handleSingleSelection(event.getPoint(), event.isControlDown());
+                    }
+                    resetDragState();
+                    return;
+                }
+
+                if (editToolMode == EditToolMode.SELECT && dragMode == DragMode.BOX_SELECT) {
                     Rectangle finalRect = selectionRect == null ? createRect(dragStartPoint, event.getPoint()) : selectionRect;
                     boolean clickAction = finalRect.width < 4 && finalRect.height < 4;
                     if (clickAction) {
@@ -713,11 +809,12 @@ public class MapCanvas extends JPanel {
                     } else {
                         repaint();
                     }
+                    resetDragState();
+                    return;
                 }
 
-                dragMode = DragMode.NONE;
-                dragStartPoint = null;
-                dragCurrentPoint = null;
+                handleEditToolClick(event.getPoint(), event.isControlDown());
+                resetDragState();
             }
         };
 
@@ -752,6 +849,64 @@ public class MapCanvas extends JPanel {
             }
         };
         addMouseWheelListener(wheelHandler);
+    }
+
+    private void handleEditToolClick(Point point, boolean appendSelection) {
+        Vertex vertex = findVertexAt(point);
+        Edge edge = findEdgeAt(point);
+
+        if (editToolMode == EditToolMode.ADD_VERTEX) {
+            if (vertex == null) {
+                Point2D.Double world = toWorld(point);
+                fireAddVertexRequested(world.x, world.y);
+                return;
+            }
+            handleSingleSelection(point, appendSelection);
+            return;
+        }
+
+        if (editToolMode == EditToolMode.ADD_EDGE) {
+            if (vertex == null) {
+                handleSingleSelection(point, appendSelection);
+                return;
+            }
+            String vertexId = vertex.getId();
+            handleSingleSelection(point, appendSelection);
+            if (pendingEdgeStartVertexId == null) {
+                pendingEdgeStartVertexId = vertexId;
+                fireEdgeDraftChanged(pendingEdgeStartVertexId);
+                return;
+            }
+            if (!pendingEdgeStartVertexId.equals(vertexId)) {
+                fireConnectVerticesRequested(pendingEdgeStartVertexId, vertexId);
+            }
+            pendingEdgeStartVertexId = null;
+            fireEdgeDraftChanged(null);
+            return;
+        }
+
+        if (editToolMode == EditToolMode.DELETE_OBJECT) {
+            if (vertex != null) {
+                fireDeleteVertexRequested(vertex.getId());
+                return;
+            }
+            if (edge != null) {
+                fireDeleteEdgeRequested(edgeKey(edge));
+                return;
+            }
+            handleSingleSelection(point, appendSelection);
+            return;
+        }
+
+        handleSingleSelection(point, appendSelection);
+    }
+
+    private void resetDragState() {
+        dragMode = DragMode.NONE;
+        dragStartPoint = null;
+        dragCurrentPoint = null;
+        draggingVertexId = null;
+        draggingVertexMoved = false;
     }
 
     private void handleSingleSelection(Point point, boolean appendSelection) {
@@ -1109,6 +1264,48 @@ public class MapCanvas extends JPanel {
         listener.onSelectionChanged(selected, selectedEdgeKey);
     }
 
+    private void fireAddVertexRequested(double x, double y) {
+        if (listener == null) {
+            return;
+        }
+        listener.onAddVertexRequested(x, y);
+    }
+
+    private void fireConnectVerticesRequested(String fromId, String toId) {
+        if (listener == null || fromId == null || toId == null) {
+            return;
+        }
+        listener.onConnectVerticesRequested(fromId, toId);
+    }
+
+    private void fireMoveVertexRequested(String vertexId, double x, double y) {
+        if (listener == null || vertexId == null) {
+            return;
+        }
+        listener.onMoveVertexRequested(vertexId, x, y);
+    }
+
+    private void fireDeleteVertexRequested(String vertexId) {
+        if (listener == null || vertexId == null) {
+            return;
+        }
+        listener.onDeleteVertexRequested(vertexId);
+    }
+
+    private void fireDeleteEdgeRequested(String edgeKey) {
+        if (listener == null || edgeKey == null) {
+            return;
+        }
+        listener.onDeleteEdgeRequested(edgeKey);
+    }
+
+    private void fireEdgeDraftChanged(String startVertexId) {
+        if (listener == null) {
+            return;
+        }
+        listener.onEdgeDraftChanged(startVertexId);
+    }
+
     private void fireVertexActivated(String vertexId) {
         if (listener == null || vertexId == null) {
             return;
@@ -1196,5 +1393,17 @@ public class MapCanvas extends JPanel {
         void onViewportChanged(double zoom, double panX, double panY);
 
         void onVertexActivated(String vertexId);
+
+        void onAddVertexRequested(double x, double y);
+
+        void onConnectVerticesRequested(String fromId, String toId);
+
+        void onMoveVertexRequested(String vertexId, double x, double y);
+
+        void onDeleteVertexRequested(String vertexId);
+
+        void onDeleteEdgeRequested(String edgeKey);
+
+        void onEdgeDraftChanged(String startVertexId);
     }
 }

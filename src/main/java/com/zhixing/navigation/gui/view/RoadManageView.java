@@ -154,6 +154,24 @@ public class RoadManageView extends JPanel {
         roadTypeCombo.setSelectedIndex(0);
     }
 
+    public void fillFromEdge(Edge edge) {
+        if (edge == null) {
+            return;
+        }
+        String fromId = edge.getFromVertex().getId();
+        String toId = edge.getToVertex().getId();
+        ViewUtils.selectComboByMatcher(fromCombo, value -> value != null && fromId.equals(value.getId()));
+        ViewUtils.selectComboByMatcher(toCombo, value -> value != null && toId.equals(value.getId()));
+        weightField.setText(String.valueOf(edge.getWeight()));
+        oneWayCheck.setSelected(edge.isOneWay());
+        forbiddenCheck.setSelected(edge.isForbidden());
+        roadTypeCombo.setSelectedItem(edge.getRoadType());
+    }
+
+    public void setForbiddenQuick(boolean forbidden) {
+        forbiddenCheck.setSelected(forbidden);
+    }
+
     private RoadFormData buildFormData() {
         return new RoadFormData(
                 selectedFromId(),
