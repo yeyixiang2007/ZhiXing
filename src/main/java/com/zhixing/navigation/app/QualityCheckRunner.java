@@ -7,6 +7,7 @@ import com.zhixing.navigation.application.navigation.ConsolePathFormatter;
 import com.zhixing.navigation.application.navigation.NavigationService;
 import com.zhixing.navigation.domain.graph.CampusGraph;
 import com.zhixing.navigation.domain.model.Admin;
+import com.zhixing.navigation.domain.model.Edge;
 import com.zhixing.navigation.domain.model.NormalUser;
 import com.zhixing.navigation.domain.model.PathResult;
 import com.zhixing.navigation.domain.model.PlaceType;
@@ -15,6 +16,11 @@ import com.zhixing.navigation.domain.model.User;
 import com.zhixing.navigation.domain.model.Vertex;
 import com.zhixing.navigation.domain.planning.DijkstraStrategy;
 import com.zhixing.navigation.domain.planning.NoRouteFoundException;
+import com.zhixing.navigation.gui.controller.ControllerExceptionMapper;
+import com.zhixing.navigation.gui.controller.MapController;
+import com.zhixing.navigation.gui.controller.NavigationController;
+import com.zhixing.navigation.gui.model.RouteVisualizationDto;
+import com.zhixing.navigation.gui.workbench.MapCanvas;
 import com.zhixing.navigation.infrastructure.persistence.PersistenceService;
 
 import java.io.ByteArrayInputStream;
@@ -24,6 +30,9 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class QualityCheckRunner {
@@ -39,13 +48,11 @@ public class QualityCheckRunner {
 
     private void runAll() {
         System.out.println("=== Quality Check Start ===");
-        runCase("P0功能回归", this::testP0FunctionalRegression);
-        runCase("异常测试-非法输入友好提示与重试", this::testInvalidInputRetry);
-        runCase("异常测试-不可达路径", this::testUnreachablePath);
-        runCase("异常测试-文件异常兜底", this::testFileFallback);
-        runCase("异常测试-权限越界", this::testPermissionBoundary);
-        runCase("性能测试-路径计算<=1s", this::testPathPerformance);
-        runCase("性能测试-启动加载<=2s", this::testStartupPerformance);
+        runCase("G1 用户主流程联调（地图选点 -> 查询 -> 路径展示）", this::testUserMainFlowIntegration);
+        runCase("G2 管理员主流程联调（标点 -> 连线 -> 禁行 -> 保存）", this::testAdminMainFlowIntegration);
+        runCase("G3 异常流程测试（非法输入、不可达、权限越界、文件异常）", this::testExceptionFlowRegression);
+        runCase("G4 性能验证（GUI启动 <= 2s，查询 <= 1s，地图交互无明显卡顿）", this::testPerformanceValidation);
+        runCase("G5 回归脚本与演示脚本更新", this::testScriptUpdates);
 
         System.out.println();
         System.out.println("=== Quality Check Summary ===");
@@ -72,6 +79,83 @@ public class QualityCheckRunner {
             System.out.println("[FAIL] " + caseName + " (" + elapsedMs + " ms)");
             System.out.println("       -> " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
         }
+    }
+
+    private void testUserMainFlowIntegration() throws IOException {
+        Path tempDir = Files.createTempDirectory("zhixing-g1-user-flow");
+        PersistenceService persistence = new PersistenceService(tempDir);
+        CampusGraph graph = persistence.loadGraphOrDefault();
+        persistence.loadUsersOrDefault();
+
+        NavigationController navigationController = new NavigationController(
+                graph,
+                new NavigationService(new DijkstraStrategy()),
+                new ConsolePathFormatter()
+        );
+
+        NavigationController.NavigationVisualResult result = navigationController.queryPathVisual("GATE_E", "TB_A");
+        PathResult pathResult = result.getPathResult();
+        RouteVisualizationDto visualization = result.getRouteVisualization();
+
+        assertEquals("GATE_E", pathResult.getStartVertex().getId(), "用户流程起点应正确");
+        assertEquals("TB_A", pathResult.getEndVertex().getId(), "用户流程终点应正确");
+        assertTrue(pathResult.getTotalDistance() > 0, "用户流程路径总长应大于0");
+        assertTrue(pathResult.getNaviInstructions().size() >= 1, "用户流程应生成导航步骤");
+        assertTrue(visualization.getSegmentCount() >= 1, "用户流程应生成可视化线段");
+    }
+
+    private void testAdminMainFlowIntegration() throws IOException {
+        Path tempDir = Files.createTempDirectory("zhixing-g2-admin-flow");
+        PersistenceService persistence = new PersistenceService(tempDir);
+        CampusGraph graph = persistence.loadGraphOrDefault();
+        persistence.loadUsersOrDefault();
+
+        AuthService authService = new AuthService(persistence);
+        Admin admin = authService.loginAdmin("admin", "admin123");
+        MapController mapController = new MapController(graph, new MapService(graph), persistence);
+
+        String nodeId = "G2_NODE";
+        mapController.addVertex(admin, nodeId, "G2 Integration Node", PlaceType.OTHER, 380, 210, "flow test");
+        mapController.addRoad(admin, "TB_A", nodeId, 77.0, false, false, RoadType.PATH);
+        mapController.setRoadForbidden(admin, "TB_A", nodeId, true);
+
+        CampusGraph reloaded = persistence.loadGraph();
+        assertTrue(reloaded.containsVertex(nodeId), "管理员流程保存后应存在新点位");
+        Edge savedEdge = findEdge(reloaded, "TB_A", nodeId);
+        assertTrue(savedEdge != null, "管理员流程保存后应存在新道路");
+        assertTrue(savedEdge.isForbidden(), "管理员流程保存后道路应为禁行状态");
+    }
+
+    private void testExceptionFlowRegression() throws Exception {
+        testInvalidInputRetry();
+        testUnreachablePath();
+        testFileFallback();
+        testPermissionBoundary();
+        assertTrue(ControllerExceptionMapper.toUserMessage(new IllegalArgumentException("vertex not found: A")).startsWith("输入错误："),
+                "异常映射应覆盖输入错误");
+        assertTrue(ControllerExceptionMapper.toUserMessage(new NoRouteFoundException("n/a")).startsWith("路径不可达："),
+                "异常映射应覆盖不可达错误");
+    }
+
+    private void testPerformanceValidation() throws Exception {
+        testPathPerformance();
+        testStartupPerformance();
+        testMapInteractionPerformance();
+        assertTrue(pathCostMs <= 1000, "查询性能应<=1s");
+        assertTrue(startupCostMs <= 2000, "启动性能应<=2s");
+    }
+
+    private void testScriptUpdates() throws IOException {
+        Path root = Paths.get("").toAbsolutePath().normalize();
+        Path regressionScript = root.resolve("scripts").resolve("regression.ps1");
+        Path demoScript = root.resolve("scripts").resolve("demo.ps1");
+        assertTrue(Files.exists(regressionScript), "回归脚本 regression.ps1 应存在");
+        assertTrue(Files.exists(demoScript), "演示脚本 demo.ps1 应存在");
+
+        String regressionContent = new String(Files.readAllBytes(regressionScript), StandardCharsets.UTF_8);
+        String demoContent = new String(Files.readAllBytes(demoScript), StandardCharsets.UTF_8);
+        assertTrue(regressionContent.contains("qa.ps1"), "回归脚本应调用 qa.ps1");
+        assertTrue(demoContent.contains("run-gui.ps1"), "演示脚本应调用 run-gui.ps1");
     }
 
     private void testP0FunctionalRegression() throws IOException {
@@ -228,6 +312,37 @@ public class QualityCheckRunner {
         assertTrue(startupCostMs <= 2000, "启动加载耗时应<=2000ms，当前=" + startupCostMs + "ms");
     }
 
+    private void testMapInteractionPerformance() {
+        CampusGraph graph = buildPerformanceGraph(200, 500);
+        MapCanvas mapCanvas = new MapCanvas();
+        mapCanvas.setSize(1200, 760);
+
+        List<Vertex> vertices = new ArrayList<Vertex>(graph.getAllVertices());
+        List<Edge> edges = new ArrayList<Edge>(graph.getAllEdges());
+
+        NavigationController navigationController = new NavigationController(
+                graph,
+                new NavigationService(new DijkstraStrategy()),
+                new ConsolePathFormatter()
+        );
+        RouteVisualizationDto route = navigationController.toCurrentRouteVisualization(
+                navigationController.queryPath("V0", "V199")
+        );
+
+        long startNs = System.nanoTime();
+        mapCanvas.setGraphData(vertices, edges);
+        mapCanvas.setRouteComparison(route, null);
+        mapCanvas.setLayerVisible(MapCanvas.Layer.LABEL, false);
+        mapCanvas.setLayerVisible(MapCanvas.Layer.LABEL, true);
+        mapCanvas.resetViewport();
+        int iterations = Math.min(route.getSegmentCount(), 40);
+        for (int i = 0; i < iterations; i++) {
+            mapCanvas.focusRouteSegment(i);
+        }
+        long interactionCostMs = elapsedMs(startNs);
+        assertTrue(interactionCostMs <= 1000, "地图交互耗时应<=1000ms，当前=" + interactionCostMs + "ms");
+    }
+
     private CampusGraph buildPerformanceGraph(int vertexSize, int edgeBudget) {
         CampusGraph graph = new CampusGraph();
         for (int i = 0; i < vertexSize; i++) {
@@ -271,6 +386,18 @@ public class QualityCheckRunner {
         return graph;
     }
 
+    private static Edge findEdge(CampusGraph graph, String fromId, String toId) {
+        if (!graph.containsVertex(fromId) || !graph.containsVertex(toId)) {
+            return null;
+        }
+        for (Edge edge : graph.getNeighbors(fromId)) {
+            if (edge.getToVertex().getId().equals(toId)) {
+                return edge;
+            }
+        }
+        return null;
+    }
+
     private static long elapsedMs(long startNs) {
         return (System.nanoTime() - startNs) / 1_000_000;
     }
@@ -303,4 +430,3 @@ public class QualityCheckRunner {
         void run() throws Exception;
     }
 }
-

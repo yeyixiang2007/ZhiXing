@@ -32,6 +32,8 @@ Java course design project for campus intelligent route planning.
 .\scripts\run.ps1
 .\scripts\run-gui.ps1
 .\scripts\qa.ps1
+.\scripts\regression.ps1
+.\scripts\demo.ps1
 ```
 
 ## 4. Data Persistence

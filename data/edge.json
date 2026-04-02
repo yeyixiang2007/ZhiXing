@@ -1,13 +1,9 @@
 [
-  {"fromId": "CAN_2", "toId": "NODE_1", "weight": 357.79938887274994, "oneWay": false, "forbidden": false, "roadType": "PATH"},
-  {"fromId": "CAN_2", "toId": "TB_A", "weight": 150.0, "oneWay": false, "forbidden": false, "roadType": "PATH"},
-  {"fromId": "GATE_E", "toId": "LIB", "weight": 220.0, "oneWay": false, "forbidden": false, "roadType": "MAIN_ROAD"},
-  {"fromId": "GATE_E", "toId": "NODE_1", "weight": 191.4568629741748, "oneWay": false, "forbidden": false, "roadType": "MAIN_ROAD"},
-  {"fromId": "GATE_E", "toId": "NODE_2", "weight": 257.2953904038607, "oneWay": false, "forbidden": true, "roadType": "MAIN_ROAD"},
-  {"fromId": "GATE_E", "toId": "TB_A", "weight": 224.12406114996233, "oneWay": false, "forbidden": false, "roadType": "PATH"},
-  {"fromId": "LIB", "toId": "CAN_2", "weight": 260.0, "oneWay": true, "forbidden": false, "roadType": "MAIN_ROAD"},
-  {"fromId": "LIB", "toId": "TB_A", "weight": 180.0, "oneWay": true, "forbidden": false, "roadType": "PATH"},
-  {"fromId": "NODE_1", "toId": "NODE_2", "weight": 209.66516804015498, "oneWay": false, "forbidden": false, "roadType": "PATH"},
-  {"fromId": "NODE_1", "toId": "TB_A", "weight": 132.71292999128806, "oneWay": false, "forbidden": false, "roadType": "STAIRS"},
-  {"fromId": "NODE_2", "toId": "TB_A", "weight": 373.6779780441036, "oneWay": false, "forbidden": false, "roadType": "PATH"}
+  {"fromId": "NODE_10", "toId": "NODE_11", "weight": 101.9803902718557, "oneWay": false, "forbidden": false, "roadType": "PATH"},
+  {"fromId": "NODE_10", "toId": "NODE_7", "weight": 56.568542494923804, "oneWay": false, "forbidden": false, "roadType": "PATH"},
+  {"fromId": "NODE_11", "toId": "NODE_7", "weight": 63.245553203367585, "oneWay": false, "forbidden": false, "roadType": "PATH"},
+  {"fromId": "NODE_11", "toId": "NODE_8", "weight": 56.568542494923804, "oneWay": false, "forbidden": false, "roadType": "PATH"},
+  {"fromId": "NODE_7", "toId": "NODE_8", "weight": 28.284271247461902, "oneWay": false, "forbidden": false, "roadType": "PATH"},
+  {"fromId": "NODE_7", "toId": "NODE_9", "weight": 20.0, "oneWay": false, "forbidden": false, "roadType": "PATH"},
+  {"fromId": "NODE_8", "toId": "NODE_9", "weight": 20.0, "oneWay": false, "forbidden": false, "roadType": "PATH"}
 ]

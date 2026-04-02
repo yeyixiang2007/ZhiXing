@@ -1,8 +1,7 @@
 [
-  {"id": "CAN_2", "name": "Second Canteen", "type": "CANTEEN", "x": 420.0, "y": 260.0, "description": "Dining hall"},
-  {"id": "GATE_E", "name": "East Gate", "type": "GATE", "x": 125.80357142857142, "y": -75.35714285714286, "description": "Main entrance"},
-  {"id": "LIB", "name": "Library", "type": "LIBRARY", "x": 127.85714285714286, "y": 236.78571428571428, "description": "Central library"},
-  {"id": "NODE_1", "name": "地点-NODE_1", "type": "OTHER", "x": 317.1199761241544, "y": -82.68951452447271, "description": "地图编辑新增"},
-  {"id": "NODE_2", "name": "地点-NODE_2", "type": "OTHER", "x": 271.6046488539963, "y": -287.3546988446126, "description": "地图编辑新增"},
-  {"id": "TB_A", "name": "Teaching Building A", "type": "TEACHING_BUILDING", "x": 253.8801363191774, "y": 85.90268277098608, "description": "Classrooms"}
+  {"id": "NODE_10", "name": "图书馆", "type": "LIBRARY", "x": 60.0, "y": -0.0, "description": "地图编辑新增"},
+  {"id": "NODE_11", "name": "西南门", "type": "GATE", "x": 40.0, "y": 100.0, "description": "地图编辑新增"},
+  {"id": "NODE_7", "name": "青春广场", "type": "OTHER", "x": 20.0, "y": 40.0, "description": "地图编辑新增"},
+  {"id": "NODE_8", "name": "西园六舍", "type": "DORMITORY", "x": 0.0, "y": 60.0, "description": "地图编辑新增"},
+  {"id": "NODE_9", "name": "第二食堂", "type": "CANTEEN", "x": 0.0, "y": 40.0, "description": "地图编辑新增"}
 ]
