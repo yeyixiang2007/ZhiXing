@@ -1,7 +1,6 @@
 package com.zhixing.navigation.gui.workbench;
 
 import com.zhixing.navigation.gui.components.LoadingOverlay;
-import com.zhixing.navigation.gui.components.ResultMessageBar;
 import com.zhixing.navigation.gui.components.UiDialogs;
 import com.zhixing.navigation.gui.controller.ControllerExceptionMapper;
 
@@ -10,36 +9,33 @@ import java.util.function.Consumer;
 
 public class WorkbenchFeedback {
     private final Component dialogParent;
-    private final ResultMessageBar messageBar;
     private final LoadingOverlay loadingOverlay;
     private final Consumer<String> statusUpdater;
 
     public WorkbenchFeedback(
             Component dialogParent,
-            ResultMessageBar messageBar,
             LoadingOverlay loadingOverlay,
             Consumer<String> statusUpdater
     ) {
         this.dialogParent = dialogParent;
-        this.messageBar = messageBar;
         this.loadingOverlay = loadingOverlay;
         this.statusUpdater = statusUpdater;
     }
 
     public void info(String message) {
-        messageBar.showMessage(message, ResultMessageBar.MessageType.INFO);
+        loadingOverlay.showToast(message, LoadingOverlay.ToastType.INFO);
     }
 
     public void success(String message) {
-        messageBar.showMessage(message, ResultMessageBar.MessageType.SUCCESS);
+        loadingOverlay.showToast(message, LoadingOverlay.ToastType.SUCCESS);
     }
 
     public void warning(String message) {
-        messageBar.showMessage(message, ResultMessageBar.MessageType.WARNING);
+        loadingOverlay.showToast(message, LoadingOverlay.ToastType.WARNING);
     }
 
     public void error(String message) {
-        messageBar.showMessage(message, ResultMessageBar.MessageType.ERROR);
+        loadingOverlay.showToast(message, LoadingOverlay.ToastType.ERROR);
     }
 
     public boolean confirm(String title, String message) {

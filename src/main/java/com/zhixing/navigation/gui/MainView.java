@@ -14,7 +14,6 @@ import com.zhixing.navigation.domain.model.Vertex;
 import com.zhixing.navigation.domain.planning.DijkstraStrategy;
 import com.zhixing.navigation.gui.components.AdminLoginDialog;
 import com.zhixing.navigation.gui.components.LoadingOverlay;
-import com.zhixing.navigation.gui.components.ResultMessageBar;
 import com.zhixing.navigation.gui.controller.AuthController;
 import com.zhixing.navigation.gui.controller.MapController;
 import com.zhixing.navigation.gui.controller.NavigationController;
@@ -50,6 +49,10 @@ import javax.swing.JPopupMenu;
 import javax.swing.JSplitPane;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
+import javax.swing.Action;
+import javax.swing.JComponent;
+import javax.swing.AbstractAction;
+import javax.swing.KeyStroke;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
@@ -58,6 +61,9 @@ import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.ArrayDeque;
@@ -85,7 +91,6 @@ public class MainView extends JFrame {
     private final MapWorkbenchView mapWorkbenchView;
     private final MapCanvas mapCanvas;
     private final LayerPanel layerPanel;
-    private final ResultMessageBar messageBar;
     private final LoadingOverlay loadingOverlay;
     private final WorkbenchFeedback feedback;
     private final Map<AppRoute, JButton> navButtons;
@@ -131,9 +136,8 @@ public class MainView extends JFrame {
         this.mapWorkbenchView = new MapWorkbenchView();
         this.mapCanvas = new MapCanvas();
         this.layerPanel = new LayerPanel(mapCanvas);
-        this.messageBar = new ResultMessageBar();
         this.loadingOverlay = new LoadingOverlay();
-        this.feedback = new WorkbenchFeedback(this, messageBar, loadingOverlay, mapWorkbenchView::setStatus);
+        this.feedback = new WorkbenchFeedback(this, loadingOverlay, mapWorkbenchView::setStatus);
         this.navButtons = new EnumMap<AppRoute, JButton>(AppRoute.class);
         this.adminSectionButtons = new LinkedHashMap<String, JButton>();
         this.adminToolButtons = new EnumMap<EditToolMode, JButton>(EditToolMode.class);
@@ -153,6 +157,7 @@ public class MainView extends JFrame {
         initializeFrame();
         initializeLayout();
         wireViewEvents();
+        installGlobalShortcuts();
         refreshAllData();
         navigateTo(AppRoute.USER_MODE);
     }
@@ -174,7 +179,6 @@ public class MainView extends JFrame {
         root.add(createTopBar(), BorderLayout.NORTH);
         root.add(createLeftNavigation(), BorderLayout.WEST);
         root.add(createCenterWorkspace(), BorderLayout.CENTER);
-        root.add(createBottomBar(), BorderLayout.SOUTH);
     }
 
     private JPanel createTopBar() {
@@ -225,7 +229,7 @@ public class MainView extends JFrame {
         }
         navigation.add(Box.createVerticalStrut(12));
         layerPanel.setAlignmentX(LEFT_ALIGNMENT);
-        layerPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 280));
+        layerPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 560));
         navigation.add(layerPanel);
         navigation.add(Box.createVerticalGlue());
         return navigation;
@@ -242,14 +246,6 @@ public class MainView extends JFrame {
 
         center.add(mapWorkbenchView, BorderLayout.CENTER);
         return center;
-    }
-
-    private JPanel createBottomBar() {
-        JPanel bottom = new JPanel(new BorderLayout());
-        bottom.setBorder(BorderFactory.createEmptyBorder(0, 12, 10, 12));
-        bottom.setBackground(UiStyles.PAGE_BACKGROUND);
-        bottom.add(messageBar, BorderLayout.CENTER);
-        return bottom;
     }
 
     private JPanel createUserModeView() {
@@ -601,6 +597,12 @@ public class MainView extends JFrame {
                     }
                 }
             }
+
+            @Override
+            public void onCanvasHint(String message) {
+                feedback.info(message);
+                feedback.setStatus("画布提示: " + message);
+            }
         });
 
         vertexManageView.setListener(new VertexManageView.Listener() {
@@ -654,6 +656,60 @@ public class MainView extends JFrame {
         });
 
         overviewDashboardView.setListener(this::refreshOverviewData);
+        layerPanel.setListener(message -> {
+            feedback.info(message);
+            feedback.setStatus("图层面板: " + message);
+        });
+    }
+
+    private void installGlobalShortcuts() {
+        JComponent root = getRootPane();
+        bindShortcut(root, "shortcut-delete", KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                handleShortcutDelete();
+            }
+        });
+        bindShortcut(root, "shortcut-undo", KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK), new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                if (activeRoute == AppRoute.ADMIN_MODE) {
+                    undoLastEdit();
+                }
+            }
+        });
+        bindShortcut(root, "shortcut-redo", KeyStroke.getKeyStroke(KeyEvent.VK_Y, InputEvent.CTRL_DOWN_MASK), new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                if (activeRoute == AppRoute.ADMIN_MODE) {
+                    redoLastEdit();
+                }
+            }
+        });
+    }
+
+    private void bindShortcut(JComponent component, String actionKey, KeyStroke keyStroke, Action action) {
+        component.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(keyStroke, actionKey);
+        component.getActionMap().put(actionKey, action);
+    }
+
+    private void handleShortcutDelete() {
+        if (!isAdminEditingAvailable()) {
+            return;
+        }
+        if (mapSelectedEdgeKey != null) {
+            handleMapDeleteEdge(mapSelectedEdgeKey);
+            return;
+        }
+        if (mapSelectedVertexIds.isEmpty()) {
+            feedback.info("Delete: 当前未选中对象。");
+            return;
+        }
+        if (mapSelectedVertexIds.size() == 1) {
+            handleMapDeleteVertex(mapSelectedVertexIds.get(0));
+            return;
+        }
+        handleBatchDeleteSelectedVertices();
     }
 
     private void handleMapVertexActivation(String vertexId) {
@@ -1497,12 +1553,12 @@ public class MainView extends JFrame {
                 return "管理员模式-连线：起点已选 " + pendingEdgeStartVertexId + "，请点击终点。";
             }
             if (activeEditToolMode == EditToolMode.MOVE_VERTEX) {
-                return "管理员模式-移动点：拖拽点位到新位置。";
+                return "管理员模式-移动点：拖拽点位到新位置（支持网格吸附与轴向对齐提示）。";
             }
             if (activeEditToolMode == EditToolMode.DELETE_OBJECT) {
-                return "管理员模式-删除对象：点击点位或道路立即删除。";
+                return "管理员模式-删除对象：点击点位或道路立即删除（Delete 快捷键可快速删除）。";
             }
-            return "管理员模式-选择：可框选多点，支持批量删除与批量禁行。";
+            return "管理员模式-选择：可框选多点，支持批量删除与批量禁行；Ctrl+Z/Ctrl+Y 撤销重做，按住 Space 可拖拽平移。";
         }
         return "系统设置：可查看数据目录，备份恢复请前往管理员模式的工具菜单。";
     }
