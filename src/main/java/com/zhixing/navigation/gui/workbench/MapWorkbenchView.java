@@ -7,15 +7,16 @@ import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
-import javax.swing.SwingConstants;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
 
 public class MapWorkbenchView extends JPanel {
     private final JLabel routeTitleLabel;
     private final JPanel mapSurfacePanel;
+    private final JPanel mapContentHolder;
     private final JLabel mapHintLabel;
     private final CardLayout sidebarLayout;
     private final JPanel sidebarPanel;
@@ -32,11 +33,19 @@ public class MapWorkbenchView extends JPanel {
         routeTitleLabel.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
 
         mapSurfacePanel = new JPanel(new BorderLayout());
-        mapSurfacePanel.setBackground(new Color(235, 241, 252));
-        mapHintLabel = new JLabel("地图工作区已就绪，等待 MapCanvas 接入...", SwingConstants.CENTER);
-        mapHintLabel.setFont(UiStyles.SUBTITLE_FONT);
+        mapSurfacePanel.setBackground(UiStyles.PANEL_BACKGROUND);
+
+        mapContentHolder = new JPanel(new BorderLayout());
+        mapContentHolder.setBackground(new Color(235, 241, 252));
+        mapSurfacePanel.add(mapContentHolder, BorderLayout.CENTER);
+
+        mapHintLabel = new JLabel("地图工作区已就绪。左键框选/点选，右键拖拽平移，滚轮缩放。");
+        mapHintLabel.setFont(UiStyles.CAPTION_FONT);
         mapHintLabel.setForeground(UiStyles.TEXT_SECONDARY);
-        mapSurfacePanel.add(mapHintLabel, BorderLayout.CENTER);
+        mapHintLabel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        mapHintLabel.setOpaque(true);
+        mapHintLabel.setBackground(new Color(245, 248, 252));
+        mapSurfacePanel.add(mapHintLabel, BorderLayout.SOUTH);
 
         JPanel mapRegion = new JPanel(new BorderLayout());
         mapRegion.setBackground(UiStyles.PANEL_BACKGROUND);
@@ -49,7 +58,7 @@ public class MapWorkbenchView extends JPanel {
 
         JPanel sideRegion = new JPanel(new BorderLayout());
         sideRegion.setBackground(UiStyles.PAGE_BACKGROUND);
-        sideRegion.setPreferredSize(new java.awt.Dimension(470, 0));
+        sideRegion.setPreferredSize(new Dimension(470, 0));
         sideRegion.add(sidebarPanel, BorderLayout.CENTER);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, mapRegion, sideRegion);
@@ -91,15 +100,15 @@ public class MapWorkbenchView extends JPanel {
     }
 
     public void setMapContent(Component component) {
-        mapSurfacePanel.removeAll();
-        mapSurfacePanel.add(component, BorderLayout.CENTER);
+        mapContentHolder.removeAll();
+        mapContentHolder.add(component, BorderLayout.CENTER);
         mapSurfacePanel.revalidate();
         mapSurfacePanel.repaint();
     }
 
     public void resetMapHint() {
-        mapSurfacePanel.removeAll();
-        mapSurfacePanel.add(mapHintLabel, BorderLayout.CENTER);
+        mapContentHolder.removeAll();
+        mapContentHolder.setBackground(new Color(235, 241, 252));
         mapSurfacePanel.revalidate();
         mapSurfacePanel.repaint();
     }

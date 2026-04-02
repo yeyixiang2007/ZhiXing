@@ -6,8 +6,10 @@ import com.zhixing.navigation.application.navigation.ConsolePathFormatter;
 import com.zhixing.navigation.application.navigation.NavigationService;
 import com.zhixing.navigation.domain.graph.CampusGraph;
 import com.zhixing.navigation.domain.model.Admin;
+import com.zhixing.navigation.domain.model.Edge;
 import com.zhixing.navigation.domain.model.PathResult;
 import com.zhixing.navigation.domain.model.PlaceType;
+import com.zhixing.navigation.domain.model.Vertex;
 import com.zhixing.navigation.domain.planning.DijkstraStrategy;
 import com.zhixing.navigation.gui.components.AdminLoginDialog;
 import com.zhixing.navigation.gui.components.LoadingOverlay;
@@ -26,6 +28,8 @@ import com.zhixing.navigation.gui.view.PathQueryView;
 import com.zhixing.navigation.gui.view.PlaceBrowseView;
 import com.zhixing.navigation.gui.view.RoadManageView;
 import com.zhixing.navigation.gui.view.VertexManageView;
+import com.zhixing.navigation.gui.workbench.LayerPanel;
+import com.zhixing.navigation.gui.workbench.MapCanvas;
 import com.zhixing.navigation.gui.workbench.MapWorkbenchView;
 import com.zhixing.navigation.gui.workbench.WorkbenchFeedback;
 import com.zhixing.navigation.infrastructure.persistence.PersistenceService;
@@ -66,6 +70,8 @@ public class MainView extends JFrame {
     private final MapController mapController;
 
     private final MapWorkbenchView mapWorkbenchView;
+    private final MapCanvas mapCanvas;
+    private final LayerPanel layerPanel;
     private final ResultMessageBar messageBar;
     private final LoadingOverlay loadingOverlay;
     private final WorkbenchFeedback feedback;
@@ -97,6 +103,8 @@ public class MainView extends JFrame {
         this.navigationController = new NavigationController(graph, navigationService, formatter);
         this.mapController = new MapController(graph, mapService, persistenceService);
         this.mapWorkbenchView = new MapWorkbenchView();
+        this.mapCanvas = new MapCanvas();
+        this.layerPanel = new LayerPanel(mapCanvas);
         this.messageBar = new ResultMessageBar();
         this.loadingOverlay = new LoadingOverlay();
         this.feedback = new WorkbenchFeedback(this, messageBar, loadingOverlay, mapWorkbenchView::setStatus);
@@ -178,6 +186,10 @@ public class MainView extends JFrame {
             navigation.add(navButton);
             navigation.add(Box.createVerticalStrut(10));
         }
+        navigation.add(Box.createVerticalStrut(12));
+        layerPanel.setAlignmentX(LEFT_ALIGNMENT);
+        layerPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 280));
+        navigation.add(layerPanel);
         navigation.add(Box.createVerticalGlue());
         return navigation;
     }
@@ -189,6 +201,7 @@ public class MainView extends JFrame {
         mapWorkbenchView.registerRoutePanel(AppRoute.USER_MODE, createUserModeView());
         mapWorkbenchView.registerRoutePanel(AppRoute.ADMIN_MODE, createAdminModeView());
         mapWorkbenchView.registerRoutePanel(AppRoute.SYSTEM_SETTINGS, createSystemSettingsView());
+        mapWorkbenchView.setMapContent(mapCanvas);
 
         center.add(mapWorkbenchView, BorderLayout.CENTER);
         return center;
@@ -380,6 +393,26 @@ public class MainView extends JFrame {
     private void wireViewEvents() {
         pathQueryView.setListener((startId, endId) -> handlePathQuery(startId, endId));
         placeBrowseView.setListener(this::refreshPlaceData);
+        mapCanvas.setListener(new MapCanvas.Listener() {
+            @Override
+            public void onSelectionChanged(List<String> selectedVertexIds, String selectedEdgeKey) {
+                if (selectedEdgeKey != null) {
+                    feedback.setStatus("地图选择: " + selectedEdgeKey);
+                    return;
+                }
+                if (selectedVertexIds.isEmpty()) {
+                    feedback.setStatus("地图选择: 无");
+                    return;
+                }
+                feedback.setStatus("地图选择: " + String.join(", ", selectedVertexIds));
+            }
+
+            @Override
+            public void onViewportChanged(double zoom, double panX, double panY) {
+                int percent = (int) Math.round(zoom * 100.0);
+                feedback.setStatus("地图视图: 缩放 " + percent + "%, 平移(" + (int) Math.round(panX) + "," + (int) Math.round(panY) + ")");
+            }
+        });
 
         vertexManageView.setListener(new VertexManageView.Listener() {
             @Override
@@ -509,6 +542,7 @@ public class MainView extends JFrame {
     }
 
     private void refreshAllData() {
+        refreshMapCanvas();
         refreshPathOptions();
         refreshPlaceData(placeBrowseView.selectedType());
         refreshVertexData();
@@ -523,6 +557,12 @@ public class MainView extends JFrame {
         String selectedEnd = pathQueryView.selectedEndId();
         List<VertexOption> options = mapController.listVertexOptions();
         pathQueryView.setVertexOptions(options, selectedStart, selectedEnd);
+    }
+
+    private void refreshMapCanvas() {
+        List<Vertex> vertices = mapController.listVertices();
+        List<Edge> roads = mapController.listRoads();
+        mapCanvas.setGraphData(vertices, roads);
     }
 
     private void refreshPlaceData(String selectedType) {
@@ -619,15 +659,15 @@ public class MainView extends JFrame {
 
     private String resolveMapHint(AppRoute route) {
         if (route == AppRoute.USER_MODE) {
-            return "用户模式：可在地图区进行选点与路径可视化（模块B/C接入中）。";
+            return "用户模式：左键框选/点选，右键拖拽平移，滚轮缩放。";
         }
         if (route == AppRoute.ADMIN_MODE) {
             if (currentAdmin == null) {
                 return "管理员模式：请先登录，登录后可进行地图编辑与数据维护。";
             }
-            return "管理员模式：可在地图区进行点线编辑与禁行管理（模块D接入中）。";
+            return "管理员模式：可在地图区查看点线与禁行状态，编辑能力在模块D接入。";
         }
-        return "系统设置：地图区保留用于备份/恢复等系统操作反馈。";
+        return "系统设置：图层面板支持显隐与绘制顺序调整，可实时预览。";
     }
 
     private boolean showAdminLoginDialog() {
