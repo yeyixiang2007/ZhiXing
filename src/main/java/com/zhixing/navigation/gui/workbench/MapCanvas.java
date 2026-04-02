@@ -8,6 +8,7 @@ import com.zhixing.navigation.gui.styles.UiStyles;
 
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
@@ -52,6 +53,8 @@ public class MapCanvas extends JPanel {
     private static final int VIEW_PADDING = 40;
     private static final int WORLD_PADDING = 20;
     private static final Stroke GRID_STROKE = new BasicStroke(1f);
+    private static final int FLASH_CYCLE_LIMIT = 8;
+    private static final int FLASH_INTERVAL_MS = 180;
 
     private final List<Vertex> vertices;
     private final List<Edge> edges;
@@ -59,8 +62,11 @@ public class MapCanvas extends JPanel {
     private final Map<String, LabelMetrics> labelMetricsCache;
     private final Map<String, Point2D.Double> projectedVertexCache;
     private final Set<String> selectedVertexIds;
+    private final List<Vertex> currentRouteVertices;
+    private final List<Vertex> previousRouteVertices;
     private final Map<Layer, Boolean> layerVisibility;
     private final List<Layer> renderOrder;
+    private final Timer routeFlashTimer;
 
     private BufferedImage sceneCache;
     private boolean sceneDirty;
@@ -85,6 +91,9 @@ public class MapCanvas extends JPanel {
     private DragMode dragMode;
     private Rectangle selectionRect;
     private String selectedEdgeKey;
+    private int focusedRouteSegmentIndex;
+    private boolean focusedSegmentVisible;
+    private int focusedSegmentFlashCycle;
 
     private Font labelFont;
     private boolean wasAntialias;
@@ -107,6 +116,8 @@ public class MapCanvas extends JPanel {
         this.labelMetricsCache = new HashMap<String, LabelMetrics>();
         this.projectedVertexCache = new HashMap<String, Point2D.Double>();
         this.selectedVertexIds = new LinkedHashSet<String>();
+        this.currentRouteVertices = new ArrayList<Vertex>();
+        this.previousRouteVertices = new ArrayList<Vertex>();
         this.layerVisibility = new EnumMap<Layer, Boolean>(Layer.class);
         this.renderOrder = new ArrayList<Layer>(Arrays.asList(Layer.ROAD, Layer.FORBIDDEN, Layer.VERTEX, Layer.LABEL));
 
@@ -120,6 +131,23 @@ public class MapCanvas extends JPanel {
         this.panX = 0;
         this.panY = 0;
         this.dragMode = DragMode.NONE;
+        this.focusedRouteSegmentIndex = -1;
+        this.focusedSegmentVisible = true;
+        this.focusedSegmentFlashCycle = 0;
+
+        this.routeFlashTimer = new Timer(FLASH_INTERVAL_MS, e -> {
+            focusedSegmentFlashCycle++;
+            focusedSegmentVisible = !focusedSegmentVisible;
+            if (focusedSegmentFlashCycle >= FLASH_CYCLE_LIMIT) {
+                Object source = e.getSource();
+                if (source instanceof Timer) {
+                    ((Timer) source).stop();
+                }
+                focusedSegmentVisible = true;
+            }
+            repaint();
+        });
+        this.routeFlashTimer.setRepeats(true);
 
         recomputeWorldBounds();
         installInteractions();
@@ -147,6 +175,14 @@ public class MapCanvas extends JPanel {
                 edges.add(edge);
             }
         }
+        remapRouteVertices(currentRouteVertices);
+        remapRouteVertices(previousRouteVertices);
+        if (focusedRouteSegmentIndex >= currentRouteVertices.size() - 1) {
+            focusedRouteSegmentIndex = -1;
+            focusedSegmentVisible = true;
+            focusedSegmentFlashCycle = 0;
+            routeFlashTimer.stop();
+        }
 
         boolean selectionChanged = selectedVertexIds.retainAll(vertexIndex.keySet());
         if (selectedEdgeKey != null && findEdgeByKey(selectedEdgeKey) == null) {
@@ -159,6 +195,66 @@ public class MapCanvas extends JPanel {
 
         recomputeWorldBounds();
         invalidateScene(true, true);
+        repaint();
+    }
+
+    public void setRouteComparison(List<Vertex> currentRoute, List<Vertex> previousRoute) {
+        currentRouteVertices.clear();
+        previousRouteVertices.clear();
+        focusedRouteSegmentIndex = -1;
+        focusedSegmentVisible = true;
+        focusedSegmentFlashCycle = 0;
+        routeFlashTimer.stop();
+
+        if (currentRoute != null) {
+            for (Vertex vertex : currentRoute) {
+                if (vertex == null) {
+                    continue;
+                }
+                Vertex normalized = vertexIndex.get(vertex.getId());
+                if (normalized != null) {
+                    currentRouteVertices.add(normalized);
+                }
+            }
+        }
+        if (previousRoute != null) {
+            for (Vertex vertex : previousRoute) {
+                if (vertex == null) {
+                    continue;
+                }
+                Vertex normalized = vertexIndex.get(vertex.getId());
+                if (normalized != null) {
+                    previousRouteVertices.add(normalized);
+                }
+            }
+        }
+        repaint();
+    }
+
+    public void clearRouteComparison() {
+        currentRouteVertices.clear();
+        previousRouteVertices.clear();
+        focusedRouteSegmentIndex = -1;
+        focusedSegmentVisible = true;
+        focusedSegmentFlashCycle = 0;
+        routeFlashTimer.stop();
+        repaint();
+    }
+
+    public void focusRouteSegment(int segmentIndex) {
+        if (segmentIndex < 0 || segmentIndex >= currentRouteVertices.size() - 1) {
+            focusedRouteSegmentIndex = -1;
+            focusedSegmentVisible = true;
+            focusedSegmentFlashCycle = 0;
+            routeFlashTimer.stop();
+            repaint();
+            return;
+        }
+        focusedRouteSegmentIndex = segmentIndex;
+        focusedSegmentVisible = true;
+        focusedSegmentFlashCycle = 0;
+        routeFlashTimer.restart();
+        centerOnSegment(segmentIndex);
         repaint();
     }
 
@@ -227,6 +323,7 @@ public class MapCanvas extends JPanel {
                 g2.drawImage(sceneCache, 0, 0, null);
             }
 
+            drawRouteComparison(g2);
             drawSelectionOverlay(g2);
             drawSelectionRect(g2);
         } finally {
@@ -398,6 +495,100 @@ public class MapCanvas extends JPanel {
             g2.setColor(UiStyles.TEXT_PRIMARY);
             g2.drawString(vertex.getName(), x, y);
         }
+    }
+
+    private void drawRouteComparison(Graphics2D g2) {
+        if (previousRouteVertices.size() >= 2) {
+            drawRoutePolyline(g2, previousRouteVertices, new Color(80, 130, 220, 110), 3.2f, true, -1);
+        }
+        if (currentRouteVertices.size() >= 2) {
+            drawRoutePolyline(g2, currentRouteVertices, new Color(255, 170, 0), 5.2f, false, focusedRouteSegmentIndex);
+            drawRouteMarkers(g2, currentRouteVertices);
+            drawRouteStepBadges(g2, currentRouteVertices);
+        }
+    }
+
+    private void drawRoutePolyline(Graphics2D g2, List<Vertex> route, Color color, float width, boolean dashed, int focusedIndex) {
+        Stroke stroke = dashed
+                ? new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{14f, 10f}, 0f)
+                : new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+
+        for (int i = 0; i < route.size() - 1; i++) {
+            Point2D.Double from = project(route.get(i));
+            Point2D.Double to = project(route.get(i + 1));
+            if (from == null || to == null) {
+                continue;
+            }
+            if (!dashed && i == focusedIndex && !focusedSegmentVisible) {
+                continue;
+            }
+            g2.setColor(color);
+            g2.setStroke(stroke);
+            g2.draw(new Line2D.Double(from, to));
+        }
+    }
+
+    private void drawRouteMarkers(Graphics2D g2, List<Vertex> route) {
+        if (route.isEmpty()) {
+            return;
+        }
+        Point2D.Double start = project(route.get(0));
+        Point2D.Double end = project(route.get(route.size() - 1));
+        if (start != null) {
+            drawMarker(g2, start, "S", new Color(39, 174, 96));
+        }
+        if (end != null) {
+            drawMarker(g2, end, "E", new Color(231, 76, 60));
+        }
+    }
+
+    private void drawRouteStepBadges(Graphics2D g2, List<Vertex> route) {
+        Font previous = g2.getFont();
+        g2.setFont(UiStyles.CAPTION_FONT);
+        for (int i = 0; i < route.size() - 1; i++) {
+            Point2D.Double from = project(route.get(i));
+            Point2D.Double to = project(route.get(i + 1));
+            if (from == null || to == null) {
+                continue;
+            }
+            double cx = (from.x + to.x) / 2.0;
+            double cy = (from.y + to.y) / 2.0;
+            int radius = 10;
+
+            g2.setColor(i == focusedRouteSegmentIndex ? new Color(255, 153, 0) : new Color(255, 255, 255, 230));
+            g2.fillOval((int) Math.round(cx) - radius, (int) Math.round(cy) - radius, radius * 2, radius * 2);
+            g2.setColor(new Color(102, 114, 128));
+            g2.setStroke(new BasicStroke(1.2f));
+            g2.drawOval((int) Math.round(cx) - radius, (int) Math.round(cy) - radius, radius * 2, radius * 2);
+
+            String text = String.valueOf(i + 1);
+            FontMetrics fm = g2.getFontMetrics();
+            int tx = (int) Math.round(cx) - fm.stringWidth(text) / 2;
+            int ty = (int) Math.round(cy) + fm.getAscent() / 2 - 2;
+            g2.setColor(UiStyles.TEXT_PRIMARY);
+            g2.drawString(text, tx, ty);
+        }
+        g2.setFont(previous);
+    }
+
+    private void drawMarker(Graphics2D g2, Point2D.Double point, String text, Color fillColor) {
+        int radius = 12;
+        int cx = (int) Math.round(point.x);
+        int cy = (int) Math.round(point.y);
+
+        g2.setColor(fillColor);
+        g2.fillOval(cx - radius, cy - radius, radius * 2, radius * 2);
+        g2.setColor(Color.WHITE);
+        g2.setStroke(new BasicStroke(1.5f));
+        g2.drawOval(cx - radius, cy - radius, radius * 2, radius * 2);
+
+        Font previous = g2.getFont();
+        g2.setFont(UiStyles.CAPTION_FONT.deriveFont(Font.BOLD));
+        FontMetrics metrics = g2.getFontMetrics();
+        int tx = cx - metrics.stringWidth(text) / 2;
+        int ty = cy + metrics.getAscent() / 2 - 2;
+        g2.drawString(text, tx, ty);
+        g2.setFont(previous);
     }
 
     private void drawSelectionOverlay(Graphics2D g2) {
@@ -581,6 +772,9 @@ public class MapCanvas extends JPanel {
             selectedEdgeKey = null;
             repaintSelectionDelta(before, selectedVertexIds);
             fireSelectionChanged();
+            if (selectedVertexIds.contains(id)) {
+                fireVertexActivated(id);
+            }
             return;
         }
 
@@ -774,6 +968,25 @@ public class MapCanvas extends JPanel {
         return new Point2D.Double(worldX, worldY);
     }
 
+    private void centerOnSegment(int segmentIndex) {
+        if (segmentIndex < 0 || segmentIndex >= currentRouteVertices.size() - 1) {
+            return;
+        }
+        Point2D.Double from = project(currentRouteVertices.get(segmentIndex));
+        Point2D.Double to = project(currentRouteVertices.get(segmentIndex + 1));
+        if (from == null || to == null) {
+            return;
+        }
+        double centerX = (from.x + to.x) / 2.0;
+        double centerY = (from.y + to.y) / 2.0;
+        double targetX = getWidth() / 2.0;
+        double targetY = getHeight() / 2.0;
+        panX += targetX - centerX;
+        panY += targetY - centerY;
+        invalidateScene(true, true);
+        fireViewportChanged();
+    }
+
     private void recomputeWorldBounds() {
         if (vertices.isEmpty()) {
             worldMinX = -100;
@@ -805,6 +1018,23 @@ public class MapCanvas extends JPanel {
         worldWidth = Math.max(1, worldMaxX - worldMinX);
         worldHeight = Math.max(1, worldMaxY - worldMinY);
         projectionDirty = true;
+    }
+
+    private void remapRouteVertices(List<Vertex> route) {
+        if (route == null || route.isEmpty()) {
+            return;
+        }
+        List<Vertex> copy = new ArrayList<Vertex>(route);
+        route.clear();
+        for (Vertex vertex : copy) {
+            if (vertex == null) {
+                continue;
+            }
+            Vertex normalized = vertexIndex.get(vertex.getId());
+            if (normalized != null) {
+                route.add(normalized);
+            }
+        }
     }
 
     private void invalidateScene(boolean markSceneDirty, boolean markProjectionDirty) {
@@ -877,6 +1107,13 @@ public class MapCanvas extends JPanel {
         List<String> selected = new ArrayList<String>(selectedVertexIds);
         Collections.sort(selected);
         listener.onSelectionChanged(selected, selectedEdgeKey);
+    }
+
+    private void fireVertexActivated(String vertexId) {
+        if (listener == null || vertexId == null) {
+            return;
+        }
+        listener.onVertexActivated(vertexId);
     }
 
     private void fireViewportChanged() {
@@ -957,5 +1194,7 @@ public class MapCanvas extends JPanel {
         void onSelectionChanged(List<String> selectedVertexIds, String selectedEdgeKey);
 
         void onViewportChanged(double zoom, double panX, double panY);
+
+        void onVertexActivated(String vertexId);
     }
 }

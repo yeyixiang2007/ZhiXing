@@ -53,6 +53,7 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -92,6 +93,8 @@ public class MainView extends JFrame {
     private JPanel adminCardPanel;
     private CardLayout adminWorkspaceLayout;
     private JPanel adminWorkspacePanel;
+    private List<Vertex> currentRouteVertices;
+    private List<Vertex> previousRouteVertices;
 
     public MainView(CampusGraph graph, PersistenceService persistenceService) {
         AuthService authService = new AuthService(persistenceService);
@@ -111,6 +114,8 @@ public class MainView extends JFrame {
         this.navButtons = new EnumMap<AppRoute, JButton>(AppRoute.class);
         this.adminSectionButtons = new LinkedHashMap<String, JButton>();
         this.activeRoute = AppRoute.USER_MODE;
+        this.currentRouteVertices = new ArrayList<Vertex>();
+        this.previousRouteVertices = new ArrayList<Vertex>();
 
         UiStyles.installDefaults();
         initializeFrame();
@@ -391,7 +396,36 @@ public class MainView extends JFrame {
     }
 
     private void wireViewEvents() {
-        pathQueryView.setListener((startId, endId) -> handlePathQuery(startId, endId));
+        pathQueryView.setListener(new PathQueryView.Listener() {
+            @Override
+            public void onQuery(String startId, String endId) {
+                handlePathQuery(startId, endId);
+            }
+
+            @Override
+            public void onMapPickTargetChanged(PathQueryView.MapPickTarget target) {
+                if (target == PathQueryView.MapPickTarget.START) {
+                    mapWorkbenchView.setMapHint("地图选点模式：请在地图中点击起点。");
+                } else if (target == PathQueryView.MapPickTarget.END) {
+                    mapWorkbenchView.setMapHint("地图选点模式：请在地图中点击终点。");
+                } else {
+                    mapWorkbenchView.setMapHint(resolveMapHint(activeRoute));
+                }
+            }
+
+            @Override
+            public void onInstructionSelected(int index) {
+                int segmentIndex = index;
+                if (currentRouteVertices != null && currentRouteVertices.size() >= 2) {
+                    int maxSegment = currentRouteVertices.size() - 2;
+                    if (segmentIndex > maxSegment) {
+                        segmentIndex = maxSegment;
+                    }
+                }
+                mapCanvas.focusRouteSegment(segmentIndex);
+                feedback.setStatus("步骤联动: 已定位到第 " + (index + 1) + " 步");
+            }
+        });
         placeBrowseView.setListener(this::refreshPlaceData);
         mapCanvas.setListener(new MapCanvas.Listener() {
             @Override
@@ -411,6 +445,24 @@ public class MainView extends JFrame {
             public void onViewportChanged(double zoom, double panX, double panY) {
                 int percent = (int) Math.round(zoom * 100.0);
                 feedback.setStatus("地图视图: 缩放 " + percent + "%, 平移(" + (int) Math.round(panX) + "," + (int) Math.round(panY) + ")");
+            }
+
+            @Override
+            public void onVertexActivated(String vertexId) {
+                if (activeRoute != AppRoute.USER_MODE) {
+                    return;
+                }
+                if (pathQueryView.mapPickTarget() == PathQueryView.MapPickTarget.NONE) {
+                    return;
+                }
+                pathQueryView.pickVertex(vertexId);
+                if (pathQueryView.mapPickTarget() == PathQueryView.MapPickTarget.NONE) {
+                    mapWorkbenchView.setMapHint(resolveMapHint(activeRoute));
+                } else if (pathQueryView.mapPickTarget() == PathQueryView.MapPickTarget.START) {
+                    mapWorkbenchView.setMapHint("地图选点模式：请在地图中点击起点。");
+                } else {
+                    mapWorkbenchView.setMapHint("地图选点模式：请在地图中点击终点。");
+                }
             }
         });
 
@@ -531,6 +583,10 @@ public class MainView extends JFrame {
             feedback.showLoading("正在计算最短路径...");
             PathResult result = navigationController.queryPath(startId, endId);
             pathQueryView.setResultContent(navigationController.format(result));
+            pathQueryView.setInstructions(result.getNaviInstructions());
+            previousRouteVertices = new ArrayList<Vertex>(currentRouteVertices);
+            currentRouteVertices = new ArrayList<Vertex>(result.getPathList());
+            mapCanvas.setRouteComparison(currentRouteVertices, previousRouteVertices);
             feedback.success("路径查询成功。");
             feedback.setStatus("用户模式: 路径查询完成");
         } catch (RuntimeException ex) {
@@ -563,6 +619,7 @@ public class MainView extends JFrame {
         List<Vertex> vertices = mapController.listVertices();
         List<Edge> roads = mapController.listRoads();
         mapCanvas.setGraphData(vertices, roads);
+        mapCanvas.setRouteComparison(currentRouteVertices, previousRouteVertices);
     }
 
     private void refreshPlaceData(String selectedType) {
