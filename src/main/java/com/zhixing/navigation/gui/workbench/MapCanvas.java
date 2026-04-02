@@ -4,6 +4,7 @@ import com.zhixing.navigation.domain.model.Edge;
 import com.zhixing.navigation.domain.model.PlaceType;
 import com.zhixing.navigation.domain.model.RoadType;
 import com.zhixing.navigation.domain.model.Vertex;
+import com.zhixing.navigation.gui.model.RouteVisualizationDto;
 import com.zhixing.navigation.gui.styles.UiStyles;
 
 import javax.swing.JPanel;
@@ -62,8 +63,6 @@ public class MapCanvas extends JPanel {
     private final Map<String, LabelMetrics> labelMetricsCache;
     private final Map<String, Point2D.Double> projectedVertexCache;
     private final Set<String> selectedVertexIds;
-    private final List<Vertex> currentRouteVertices;
-    private final List<Vertex> previousRouteVertices;
     private final Map<Layer, Boolean> layerVisibility;
     private final List<Layer> renderOrder;
     private final Timer routeFlashTimer;
@@ -101,6 +100,8 @@ public class MapCanvas extends JPanel {
 
     private Font labelFont;
     private boolean wasAntialias;
+    private RouteVisualizationDto currentRouteVisualization;
+    private RouteVisualizationDto previousRouteVisualization;
 
     private Listener listener;
 
@@ -121,8 +122,6 @@ public class MapCanvas extends JPanel {
         this.labelMetricsCache = new HashMap<String, LabelMetrics>();
         this.projectedVertexCache = new HashMap<String, Point2D.Double>();
         this.selectedVertexIds = new LinkedHashSet<String>();
-        this.currentRouteVertices = new ArrayList<Vertex>();
-        this.previousRouteVertices = new ArrayList<Vertex>();
         this.layerVisibility = new EnumMap<Layer, Boolean>(Layer.class);
         this.renderOrder = new ArrayList<Layer>(Arrays.asList(Layer.ROAD, Layer.FORBIDDEN, Layer.VERTEX, Layer.LABEL));
 
@@ -143,6 +142,8 @@ public class MapCanvas extends JPanel {
         this.pendingEdgeStartVertexId = null;
         this.draggingVertexId = null;
         this.draggingVertexMoved = false;
+        this.currentRouteVisualization = null;
+        this.previousRouteVisualization = null;
 
         this.routeFlashTimer = new Timer(FLASH_INTERVAL_MS, e -> {
             focusedSegmentFlashCycle++;
@@ -184,9 +185,7 @@ public class MapCanvas extends JPanel {
                 edges.add(edge);
             }
         }
-        remapRouteVertices(currentRouteVertices);
-        remapRouteVertices(previousRouteVertices);
-        if (focusedRouteSegmentIndex >= currentRouteVertices.size() - 1) {
+        if (focusedRouteSegmentIndex >= currentRouteSegmentCount()) {
             focusedRouteSegmentIndex = -1;
             focusedSegmentVisible = true;
             focusedSegmentFlashCycle = 0;
@@ -211,42 +210,19 @@ public class MapCanvas extends JPanel {
         repaint();
     }
 
-    public void setRouteComparison(List<Vertex> currentRoute, List<Vertex> previousRoute) {
-        currentRouteVertices.clear();
-        previousRouteVertices.clear();
+    public void setRouteComparison(RouteVisualizationDto currentRoute, RouteVisualizationDto previousRoute) {
+        currentRouteVisualization = currentRoute;
+        previousRouteVisualization = previousRoute;
         focusedRouteSegmentIndex = -1;
         focusedSegmentVisible = true;
         focusedSegmentFlashCycle = 0;
         routeFlashTimer.stop();
-
-        if (currentRoute != null) {
-            for (Vertex vertex : currentRoute) {
-                if (vertex == null) {
-                    continue;
-                }
-                Vertex normalized = vertexIndex.get(vertex.getId());
-                if (normalized != null) {
-                    currentRouteVertices.add(normalized);
-                }
-            }
-        }
-        if (previousRoute != null) {
-            for (Vertex vertex : previousRoute) {
-                if (vertex == null) {
-                    continue;
-                }
-                Vertex normalized = vertexIndex.get(vertex.getId());
-                if (normalized != null) {
-                    previousRouteVertices.add(normalized);
-                }
-            }
-        }
         repaint();
     }
 
     public void clearRouteComparison() {
-        currentRouteVertices.clear();
-        previousRouteVertices.clear();
+        currentRouteVisualization = null;
+        previousRouteVisualization = null;
         focusedRouteSegmentIndex = -1;
         focusedSegmentVisible = true;
         focusedSegmentFlashCycle = 0;
@@ -255,7 +231,7 @@ public class MapCanvas extends JPanel {
     }
 
     public void focusRouteSegment(int segmentIndex) {
-        if (segmentIndex < 0 || segmentIndex >= currentRouteVertices.size() - 1) {
+        if (segmentIndex < 0 || segmentIndex >= currentRouteSegmentCount()) {
             focusedRouteSegmentIndex = -1;
             focusedSegmentVisible = true;
             focusedSegmentFlashCycle = 0;
@@ -540,56 +516,60 @@ public class MapCanvas extends JPanel {
     }
 
     private void drawRouteComparison(Graphics2D g2) {
-        if (previousRouteVertices.size() >= 2) {
-            drawRoutePolyline(g2, previousRouteVertices, new Color(80, 130, 220, 110), 3.2f, true, -1);
+        if (previousRouteVisualization != null && previousRouteVisualization.getSegmentCount() > 0) {
+            drawRouteSegments(g2, previousRouteVisualization, -1, false);
         }
-        if (currentRouteVertices.size() >= 2) {
-            drawRoutePolyline(g2, currentRouteVertices, new Color(255, 170, 0), 5.2f, false, focusedRouteSegmentIndex);
-            drawRouteMarkers(g2, currentRouteVertices);
-            drawRouteStepBadges(g2, currentRouteVertices);
+        if (currentRouteVisualization != null && currentRouteVisualization.getSegmentCount() > 0) {
+            drawRouteSegments(g2, currentRouteVisualization, focusedRouteSegmentIndex, true);
+            if (currentRouteVisualization.isShowMarkers()) {
+                drawRouteMarkers(g2, currentRouteVisualization);
+            }
+            if (currentRouteVisualization.isShowStepBadges()) {
+                drawRouteStepBadges(g2, currentRouteVisualization);
+            }
         }
     }
 
-    private void drawRoutePolyline(Graphics2D g2, List<Vertex> route, Color color, float width, boolean dashed, int focusedIndex) {
-        Stroke stroke = dashed
-                ? new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{14f, 10f}, 0f)
-                : new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
-
-        for (int i = 0; i < route.size() - 1; i++) {
-            Point2D.Double from = project(route.get(i));
-            Point2D.Double to = project(route.get(i + 1));
+    private void drawRouteSegments(Graphics2D g2, RouteVisualizationDto routeVisualization, int focusedIndex, boolean respectFocusedBlink) {
+        for (RouteVisualizationDto.Segment segment : routeVisualization.getSegments()) {
+            Point2D.Double from = projectVertexById(segment.getFromVertexId());
+            Point2D.Double to = projectVertexById(segment.getToVertexId());
             if (from == null || to == null) {
                 continue;
             }
-            if (!dashed && i == focusedIndex && !focusedSegmentVisible) {
+            if (respectFocusedBlink && segment.getIndex() == focusedIndex && !focusedSegmentVisible) {
                 continue;
             }
-            g2.setColor(color);
+            Stroke stroke = segment.isDashed()
+                    ? new BasicStroke(segment.getStrokeWidth(), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{14f, 10f}, 0f)
+                    : new BasicStroke(segment.getStrokeWidth(), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+            g2.setColor(segment.getStrokeColor());
             g2.setStroke(stroke);
             g2.draw(new Line2D.Double(from, to));
         }
     }
 
-    private void drawRouteMarkers(Graphics2D g2, List<Vertex> route) {
-        if (route.isEmpty()) {
+    private void drawRouteMarkers(Graphics2D g2, RouteVisualizationDto routeVisualization) {
+        List<String> vertexIds = routeVisualization.getVertexIds();
+        if (vertexIds.isEmpty()) {
             return;
         }
-        Point2D.Double start = project(route.get(0));
-        Point2D.Double end = project(route.get(route.size() - 1));
+        Point2D.Double start = projectVertexById(vertexIds.get(0));
+        Point2D.Double end = projectVertexById(vertexIds.get(vertexIds.size() - 1));
         if (start != null) {
-            drawMarker(g2, start, "S", new Color(39, 174, 96));
+            drawMarker(g2, start, "S", routeVisualization.getStartMarkerColor());
         }
         if (end != null) {
-            drawMarker(g2, end, "E", new Color(231, 76, 60));
+            drawMarker(g2, end, "E", routeVisualization.getEndMarkerColor());
         }
     }
 
-    private void drawRouteStepBadges(Graphics2D g2, List<Vertex> route) {
+    private void drawRouteStepBadges(Graphics2D g2, RouteVisualizationDto routeVisualization) {
         Font previous = g2.getFont();
         g2.setFont(UiStyles.CAPTION_FONT);
-        for (int i = 0; i < route.size() - 1; i++) {
-            Point2D.Double from = project(route.get(i));
-            Point2D.Double to = project(route.get(i + 1));
+        for (RouteVisualizationDto.Segment segment : routeVisualization.getSegments()) {
+            Point2D.Double from = projectVertexById(segment.getFromVertexId());
+            Point2D.Double to = projectVertexById(segment.getToVertexId());
             if (from == null || to == null) {
                 continue;
             }
@@ -597,13 +577,15 @@ public class MapCanvas extends JPanel {
             double cy = (from.y + to.y) / 2.0;
             int radius = 10;
 
-            g2.setColor(i == focusedRouteSegmentIndex ? new Color(255, 153, 0) : new Color(255, 255, 255, 230));
+            g2.setColor(segment.getIndex() == focusedRouteSegmentIndex
+                    ? routeVisualization.getFocusedBadgeFillColor()
+                    : routeVisualization.getBadgeFillColor());
             g2.fillOval((int) Math.round(cx) - radius, (int) Math.round(cy) - radius, radius * 2, radius * 2);
             g2.setColor(new Color(102, 114, 128));
             g2.setStroke(new BasicStroke(1.2f));
             g2.drawOval((int) Math.round(cx) - radius, (int) Math.round(cy) - radius, radius * 2, radius * 2);
 
-            String text = String.valueOf(i + 1);
+            String text = String.valueOf(segment.getIndex() + 1);
             FontMetrics fm = g2.getFontMetrics();
             int tx = (int) Math.round(cx) - fm.stringWidth(text) / 2;
             int ty = (int) Math.round(cy) + fm.getAscent() / 2 - 2;
@@ -631,6 +613,14 @@ public class MapCanvas extends JPanel {
         int ty = cy + metrics.getAscent() / 2 - 2;
         g2.drawString(text, tx, ty);
         g2.setFont(previous);
+    }
+
+    private Point2D.Double projectVertexById(String vertexId) {
+        if (vertexId == null) {
+            return null;
+        }
+        Vertex vertex = vertexIndex.get(vertexId);
+        return project(vertex);
     }
 
     private void drawSelectionOverlay(Graphics2D g2) {
@@ -1124,11 +1114,15 @@ public class MapCanvas extends JPanel {
     }
 
     private void centerOnSegment(int segmentIndex) {
-        if (segmentIndex < 0 || segmentIndex >= currentRouteVertices.size() - 1) {
+        if (currentRouteVisualization == null) {
             return;
         }
-        Point2D.Double from = project(currentRouteVertices.get(segmentIndex));
-        Point2D.Double to = project(currentRouteVertices.get(segmentIndex + 1));
+        if (segmentIndex < 0 || segmentIndex >= currentRouteVisualization.getSegmentCount()) {
+            return;
+        }
+        RouteVisualizationDto.Segment segment = currentRouteVisualization.getSegments().get(segmentIndex);
+        Point2D.Double from = projectVertexById(segment.getFromVertexId());
+        Point2D.Double to = projectVertexById(segment.getToVertexId());
         if (from == null || to == null) {
             return;
         }
@@ -1175,21 +1169,8 @@ public class MapCanvas extends JPanel {
         projectionDirty = true;
     }
 
-    private void remapRouteVertices(List<Vertex> route) {
-        if (route == null || route.isEmpty()) {
-            return;
-        }
-        List<Vertex> copy = new ArrayList<Vertex>(route);
-        route.clear();
-        for (Vertex vertex : copy) {
-            if (vertex == null) {
-                continue;
-            }
-            Vertex normalized = vertexIndex.get(vertex.getId());
-            if (normalized != null) {
-                route.add(normalized);
-            }
-        }
+    private int currentRouteSegmentCount() {
+        return currentRouteVisualization == null ? 0 : currentRouteVisualization.getSegmentCount();
     }
 
     private void invalidateScene(boolean markSceneDirty, boolean markProjectionDirty) {

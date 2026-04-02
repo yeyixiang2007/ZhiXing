@@ -20,6 +20,7 @@ import com.zhixing.navigation.gui.controller.MapController;
 import com.zhixing.navigation.gui.controller.NavigationController;
 import com.zhixing.navigation.gui.model.OverviewData;
 import com.zhixing.navigation.gui.model.RoadOption;
+import com.zhixing.navigation.gui.model.RouteVisualizationDto;
 import com.zhixing.navigation.gui.model.VertexOption;
 import com.zhixing.navigation.gui.routing.AppRoute;
 import com.zhixing.navigation.gui.styles.UiStyles;
@@ -42,7 +43,10 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JSplitPane;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
@@ -104,8 +108,9 @@ public class MainView extends JFrame {
     private JPanel adminCardPanel;
     private CardLayout adminWorkspaceLayout;
     private JPanel adminWorkspacePanel;
-    private List<Vertex> currentRouteVertices;
-    private List<Vertex> previousRouteVertices;
+    private PathResult currentPathResult;
+    private RouteVisualizationDto currentRouteVisualization;
+    private RouteVisualizationDto previousRouteVisualization;
     private List<String> mapSelectedVertexIds;
     private String mapSelectedEdgeKey;
     private String pendingEdgeStartVertexId;
@@ -135,8 +140,9 @@ public class MainView extends JFrame {
         this.undoStack = new ArrayDeque<AdminEditCommand>();
         this.redoStack = new ArrayDeque<AdminEditCommand>();
         this.activeRoute = AppRoute.USER_MODE;
-        this.currentRouteVertices = new ArrayList<Vertex>();
-        this.previousRouteVertices = new ArrayList<Vertex>();
+        this.currentPathResult = null;
+        this.currentRouteVisualization = null;
+        this.previousRouteVisualization = null;
         this.mapSelectedVertexIds = new ArrayList<String>();
         this.mapSelectedEdgeKey = null;
         this.pendingEdgeStartVertexId = null;
@@ -376,6 +382,8 @@ public class MainView extends JFrame {
         batchEnableButton.addActionListener(e -> handleBatchForbiddenBySelection(false));
         JButton quickToggleButton = UiStyles.secondaryButton("禁行切换");
         quickToggleButton.addActionListener(e -> handleQuickToggleSelectedEdgeForbidden());
+        JButton toolsMenuButton = UiStyles.secondaryButton("工具菜单");
+        toolsMenuButton.addActionListener(e -> showWorkbenchToolsMenu(toolsMenuButton));
 
         editBar.add(undoButton);
         editBar.add(redoButton);
@@ -383,6 +391,7 @@ public class MainView extends JFrame {
         editBar.add(batchForbidButton);
         editBar.add(batchEnableButton);
         editBar.add(quickToggleButton);
+        editBar.add(toolsMenuButton);
         return editBar;
     }
 
@@ -483,26 +492,12 @@ public class MainView extends JFrame {
         dataDirField.setEditable(false);
         dataDirField.setText(mapController.loadOverview().getDataDir());
 
-        JTextField backupNameField = UiStyles.formField(18);
-        backupNameField.setText("backup-" + new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date()));
-        JTextField restoreNameField = UiStyles.formField(18);
-
         addFormRow(form, gbc, 0, "数据目录", dataDirField);
-        addFormRow(form, gbc, 1, "备份名称", backupNameField);
-        addFormRow(form, gbc, 2, "恢复备份", restoreNameField);
-
-        JPanel actionBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        actionBar.setOpaque(false);
-        JButton backupButton = UiStyles.primaryButton("执行备份");
-        backupButton.addActionListener(e -> handleBackup(backupNameField.getText()));
-        JButton restoreButton = UiStyles.secondaryButton("执行恢复");
-        restoreButton.addActionListener(e -> handleRestore(restoreNameField.getText()));
-        actionBar.add(backupButton);
-        actionBar.add(restoreButton);
-
+        JLabel movedLabel = UiStyles.formLabel("备份/恢复入口已迁移到「管理员模式 -> 地图编辑工具 -> 工具菜单」。");
         gbc.gridx = 1;
-        gbc.gridy = 3;
-        form.add(actionBar, gbc);
+        gbc.gridy = 1;
+        gbc.weightx = 1;
+        form.add(movedLabel, gbc);
         page.add(form, BorderLayout.NORTH);
         return page;
     }
@@ -528,8 +523,8 @@ public class MainView extends JFrame {
             @Override
             public void onInstructionSelected(int index) {
                 int segmentIndex = index;
-                if (currentRouteVertices != null && currentRouteVertices.size() >= 2) {
-                    int maxSegment = currentRouteVertices.size() - 2;
+                if (currentRouteVisualization != null && currentRouteVisualization.getSegmentCount() > 0) {
+                    int maxSegment = currentRouteVisualization.getSegmentCount() - 1;
                     if (segmentIndex > maxSegment) {
                         segmentIndex = maxSegment;
                     }
@@ -1304,12 +1299,18 @@ public class MainView extends JFrame {
         }
         try {
             feedback.showLoading("正在计算最短路径...");
-            PathResult result = navigationController.queryPath(startId, endId);
-            pathQueryView.setResultContent(navigationController.format(result));
-            pathQueryView.setInstructions(result.getNaviInstructions());
-            previousRouteVertices = new ArrayList<Vertex>(currentRouteVertices);
-            currentRouteVertices = new ArrayList<Vertex>(result.getPathList());
-            mapCanvas.setRouteComparison(currentRouteVertices, previousRouteVertices);
+            NavigationController.NavigationVisualResult result = navigationController.queryPathVisual(startId, endId);
+            PathResult pathResult = result.getPathResult();
+            pathQueryView.setResultContent(navigationController.format(pathResult));
+            pathQueryView.setInstructions(pathResult.getNaviInstructions());
+            if (currentPathResult == null) {
+                previousRouteVisualization = null;
+            } else {
+                previousRouteVisualization = navigationController.toTraceRouteVisualization(currentPathResult);
+            }
+            currentPathResult = pathResult;
+            currentRouteVisualization = result.getRouteVisualization();
+            mapCanvas.setRouteComparison(currentRouteVisualization, previousRouteVisualization);
             feedback.success("路径查询成功。");
             feedback.setStatus("用户模式: 路径查询完成");
         } catch (RuntimeException ex) {
@@ -1346,7 +1347,7 @@ public class MainView extends JFrame {
         List<Vertex> vertices = mapController.listVertices();
         List<Edge> roads = mapController.listRoads();
         mapCanvas.setGraphData(vertices, roads);
-        mapCanvas.setRouteComparison(currentRouteVertices, previousRouteVertices);
+        mapCanvas.setRouteComparison(currentRouteVisualization, previousRouteVisualization);
     }
 
     private void refreshPlaceData(String selectedType) {
@@ -1398,21 +1399,58 @@ public class MainView extends JFrame {
         }
     }
 
-    private void handleBackup(String backupName) {
+    private void showWorkbenchToolsMenu(JButton anchorButton) {
+        if (anchorButton == null) {
+            return;
+        }
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem backupItem = new JMenuItem("执行备份...");
+        backupItem.addActionListener(e -> promptBackupFromWorkbenchTools());
+        JMenuItem restoreItem = new JMenuItem("执行恢复...");
+        restoreItem.addActionListener(e -> promptRestoreFromWorkbenchTools());
+        menu.add(backupItem);
+        menu.add(restoreItem);
+        menu.show(anchorButton, 0, anchorButton.getHeight());
+    }
+
+    private void promptBackupFromWorkbenchTools() {
+        if (!ensureAdminLoggedIn()) {
+            return;
+        }
+        String defaultName = "backup-" + new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date());
+        String input = JOptionPane.showInputDialog(this, "请输入备份名称：", defaultName);
+        if (input == null) {
+            return;
+        }
+        handleBackup(input, "工作台工具");
+    }
+
+    private void promptRestoreFromWorkbenchTools() {
+        if (!ensureAdminLoggedIn()) {
+            return;
+        }
+        String input = JOptionPane.showInputDialog(this, "请输入要恢复的备份名称：", "");
+        if (input == null) {
+            return;
+        }
+        handleRestore(input, "工作台工具");
+    }
+
+    private void handleBackup(String backupName, String sourceTag) {
         try {
             feedback.showLoading("正在执行数据备份...");
             mapController.backupData(backupName);
             feedback.success("数据备份成功。");
-            feedback.setStatus("系统设置: 数据备份完成");
+            feedback.setStatus(sourceTag + ": 数据备份完成");
         } catch (RuntimeException ex) {
             feedback.showOperationError("备份失败", ex);
-            feedback.setStatus("系统设置: 数据备份失败");
+            feedback.setStatus(sourceTag + ": 数据备份失败");
         } finally {
             feedback.hideLoading();
         }
     }
 
-    private void handleRestore(String backupName) {
+    private void handleRestore(String backupName, String sourceTag) {
         if (!feedback.confirm("确认恢复", "恢复会覆盖当前数据，确定继续吗？")) {
             return;
         }
@@ -1420,10 +1458,10 @@ public class MainView extends JFrame {
             feedback.showLoading("正在恢复数据备份...");
             mapController.restoreData(backupName);
             feedback.warning("数据恢复成功，请重启应用以完全生效。");
-            feedback.setStatus("系统设置: 数据恢复完成");
+            feedback.setStatus(sourceTag + ": 数据恢复完成");
         } catch (RuntimeException ex) {
             feedback.showOperationError("恢复失败", ex);
-            feedback.setStatus("系统设置: 数据恢复失败");
+            feedback.setStatus(sourceTag + ": 数据恢复失败");
         } finally {
             feedback.hideLoading();
         }
@@ -1466,7 +1504,7 @@ public class MainView extends JFrame {
             }
             return "管理员模式-选择：可框选多点，支持批量删除与批量禁行。";
         }
-        return "系统设置：图层面板支持显隐与绘制顺序调整，可实时预览。";
+        return "系统设置：可查看数据目录，备份恢复请前往管理员模式的工具菜单。";
     }
 
     private boolean showAdminLoginDialog() {
