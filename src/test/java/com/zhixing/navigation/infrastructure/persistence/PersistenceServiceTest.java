@@ -39,6 +39,7 @@ class PersistenceServiceTest {
         Assertions.assertEquals(graph.edgeCount(), loadedGraph.edgeCount());
         Assertions.assertEquals(2, loadedUsers.size());
         Assertions.assertEquals("admin", loadedUsers.get(0).getUsername());
+        Assertions.assertTrue(Files.exists(tempDir.resolve("meta.json")));
     }
 
     @Test
@@ -54,6 +55,7 @@ class PersistenceServiceTest {
         Assertions.assertTrue(Files.exists(tempDir.resolve("vertex.json")));
         Assertions.assertTrue(Files.exists(tempDir.resolve("edge.json")));
         Assertions.assertTrue(Files.exists(tempDir.resolve("user.json")));
+        Assertions.assertTrue(Files.exists(tempDir.resolve("meta.json")));
     }
 
     @Test

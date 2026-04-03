@@ -13,23 +13,29 @@ import com.zhixing.navigation.domain.security.PasswordHasher;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 public class PersistenceService {
+    private static final int DATA_VERSION = 2;
+
     private final Path dataDir;
     private final Path backupDir;
     private final Path vertexFile;
     private final Path edgeFile;
     private final Path userFile;
+    private final Path metaFile;
 
     public PersistenceService(Path dataDir) {
         if (dataDir == null) {
@@ -40,9 +46,11 @@ public class PersistenceService {
         this.vertexFile = this.dataDir.resolve("vertex.json");
         this.edgeFile = this.dataDir.resolve("edge.json");
         this.userFile = this.dataDir.resolve("user.json");
+        this.metaFile = this.dataDir.resolve("meta.json");
     }
 
     public CampusGraph loadGraph() {
+        ensureVersionSupported();
         List<Map<String, Object>> vertexRecords = readArrayFile(vertexFile);
         List<Map<String, Object>> edgeRecords = readArrayFile(edgeFile);
 
@@ -71,13 +79,14 @@ public class PersistenceService {
     }
 
     public List<User> loadUsers() {
+        ensureVersionSupported();
         List<Map<String, Object>> rows = readArrayFile(userFile);
         List<User> users = new ArrayList<User>();
         for (Map<String, Object> row : rows) {
             String username = requiredString(row, "username");
             String passwordHash = requiredString(row, "passwordHash");
             if (!PasswordHasher.isEncodedHash(passwordHash)) {
-                throw new IllegalArgumentException("passwordHash must be encrypted with sha256 format");
+                throw new IllegalArgumentException("passwordHash must use pbkdf2 format");
             }
             Role role = Role.valueOf(requiredString(row, "role"));
             if (role == Role.ADMIN) {
@@ -156,6 +165,7 @@ public class PersistenceService {
 
         writeArrayFile(vertexFile, vertexRecords);
         writeArrayFile(edgeFile, edgeRecords);
+        writeMetaVersion();
     }
 
     public void saveUsers(List<User> users) {
@@ -165,7 +175,7 @@ public class PersistenceService {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
         for (User user : users) {
             if (!PasswordHasher.isEncodedHash(user.getPasswordHash())) {
-                throw new IllegalArgumentException("passwordHash must be encrypted with sha256 format");
+                throw new IllegalArgumentException("passwordHash must use pbkdf2 format");
             }
             Map<String, Object> row = new LinkedHashMap<String, Object>();
             row.put("username", user.getUsername());
@@ -180,6 +190,7 @@ public class PersistenceService {
             }
         });
         writeArrayFile(userFile, rows);
+        writeMetaVersion();
     }
 
     public void backupData(String backupName) {
@@ -188,9 +199,10 @@ public class PersistenceService {
         Path targetDir = backupDir.resolve(name);
         try {
             Files.createDirectories(targetDir);
-            copyIfExists(vertexFile, targetDir.resolve("vertex.json"));
-            copyIfExists(edgeFile, targetDir.resolve("edge.json"));
-            copyIfExists(userFile, targetDir.resolve("user.json"));
+            copyRequired(vertexFile, targetDir.resolve("vertex.json"));
+            copyRequired(edgeFile, targetDir.resolve("edge.json"));
+            copyRequired(userFile, targetDir.resolve("user.json"));
+            copyRequired(metaFile, targetDir.resolve("meta.json"));
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to backup data", ex);
         }
@@ -207,6 +219,7 @@ public class PersistenceService {
             copyRequired(sourceDir.resolve("vertex.json"), vertexFile);
             copyRequired(sourceDir.resolve("edge.json"), edgeFile);
             copyRequired(sourceDir.resolve("user.json"), userFile);
+            copyRequired(sourceDir.resolve("meta.json"), metaFile);
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to restore backup", ex);
         }
@@ -231,10 +244,26 @@ public class PersistenceService {
     }
 
     private void writeArrayFile(Path file, List<Map<String, Object>> records) {
+        Path tempFile = null;
         try {
-            Files.write(file, SimpleJson.toJsonArray(records).getBytes(StandardCharsets.UTF_8));
+            byte[] content = SimpleJson.toJsonArray(records).getBytes(StandardCharsets.UTF_8);
+            tempFile = file.resolveSibling(file.getFileName().toString() + ".tmp-" + System.nanoTime());
+            Files.write(tempFile, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            try {
+                Files.move(tempFile, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException ignore) {
+                Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to write data file: " + file, ex);
+        } finally {
+            if (tempFile != null) {
+                try {
+                    Files.deleteIfExists(tempFile);
+                } catch (IOException ignore) {
+                    // Keep main operation result deterministic; temp cleanup is best effort.
+                }
+            }
         }
     }
 
@@ -244,12 +273,6 @@ public class PersistenceService {
             Files.createDirectories(backupDir);
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to create data directories", ex);
-        }
-    }
-
-    private void copyIfExists(Path source, Path target) throws IOException {
-        if (Files.exists(source)) {
-            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
@@ -324,5 +347,28 @@ public class PersistenceService {
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
         return value.trim();
+    }
+
+    private void ensureVersionSupported() {
+        if (!Files.exists(metaFile)) {
+            throw new IllegalStateException("Data meta file not found: " + metaFile);
+        }
+        List<Map<String, Object>> rows = readArrayFile(metaFile);
+        if (rows.isEmpty()) {
+            throw new IllegalStateException("Invalid meta file: missing version record");
+        }
+        int version = (int) requiredDouble(rows.get(0), "version");
+        if (version != DATA_VERSION) {
+            throw new IllegalStateException("Unsupported data version " + version + ", required version is " + DATA_VERSION);
+        }
+    }
+
+    private void writeMetaVersion() {
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        Map<String, Object> record = new LinkedHashMap<String, Object>();
+        record.put("version", DATA_VERSION);
+        record.put("updatedAt", String.valueOf(new Date().getTime()));
+        rows.add(record);
+        writeArrayFile(metaFile, rows);
     }
 }

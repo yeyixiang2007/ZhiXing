@@ -34,6 +34,9 @@ import com.zhixing.navigation.gui.workbench.LayerPanel;
 import com.zhixing.navigation.gui.workbench.MapCanvas;
 import com.zhixing.navigation.gui.workbench.MapWorkbenchView;
 import com.zhixing.navigation.gui.workbench.WorkbenchFeedback;
+import com.zhixing.navigation.gui.workbench.command.CommandBus;
+import com.zhixing.navigation.gui.workbench.command.UndoableCommand;
+import com.zhixing.navigation.gui.workbench.state.MapViewState;
 import com.zhixing.navigation.infrastructure.persistence.PersistenceService;
 
 import javax.swing.BorderFactory;
@@ -66,10 +69,8 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.Date;
-import java.util.Deque;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -96,8 +97,8 @@ public class MainView extends JFrame {
     private final Map<AppRoute, JButton> navButtons;
     private final Map<String, JButton> adminSectionButtons;
     private final Map<EditToolMode, JButton> adminToolButtons;
-    private final Deque<AdminEditCommand> undoStack;
-    private final Deque<AdminEditCommand> redoStack;
+    private final CommandBus<Admin> adminCommandBus;
+    private final MapViewState viewState;
 
     private PathQueryView pathQueryView;
     private PlaceBrowseView placeBrowseView;
@@ -113,13 +114,6 @@ public class MainView extends JFrame {
     private JPanel adminCardPanel;
     private CardLayout adminWorkspaceLayout;
     private JPanel adminWorkspacePanel;
-    private PathResult currentPathResult;
-    private RouteVisualizationDto currentRouteVisualization;
-    private RouteVisualizationDto previousRouteVisualization;
-    private List<String> mapSelectedVertexIds;
-    private String mapSelectedEdgeKey;
-    private String pendingEdgeStartVertexId;
-    private EditToolMode activeEditToolMode;
     private JButton undoButton;
     private JButton redoButton;
     private int autoVertexCounter;
@@ -141,16 +135,9 @@ public class MainView extends JFrame {
         this.navButtons = new EnumMap<AppRoute, JButton>(AppRoute.class);
         this.adminSectionButtons = new LinkedHashMap<String, JButton>();
         this.adminToolButtons = new EnumMap<EditToolMode, JButton>(EditToolMode.class);
-        this.undoStack = new ArrayDeque<AdminEditCommand>();
-        this.redoStack = new ArrayDeque<AdminEditCommand>();
+        this.adminCommandBus = new CommandBus<Admin>();
+        this.viewState = new MapViewState();
         this.activeRoute = AppRoute.USER_MODE;
-        this.currentPathResult = null;
-        this.currentRouteVisualization = null;
-        this.previousRouteVisualization = null;
-        this.mapSelectedVertexIds = new ArrayList<String>();
-        this.mapSelectedEdgeKey = null;
-        this.pendingEdgeStartVertexId = null;
-        this.activeEditToolMode = EditToolMode.SELECT;
         this.autoVertexCounter = 1;
 
         UiStyles.installDefaults();
@@ -435,9 +422,9 @@ public class MainView extends JFrame {
 
     private void setAdminEditMode(EditToolMode mode) {
         EditToolMode target = mode == null ? EditToolMode.SELECT : mode;
-        activeEditToolMode = target;
+        viewState.setActiveEditToolMode(target);
         mapCanvas.setEditToolMode(target);
-        pendingEdgeStartVertexId = null;
+        viewState.setPendingEdgeStartVertexId(null);
         updateAdminToolButtonStyle();
         if (activeRoute == AppRoute.ADMIN_MODE) {
             mapWorkbenchView.setMapHint(resolveMapHint(activeRoute));
@@ -446,7 +433,7 @@ public class MainView extends JFrame {
 
     private void updateAdminToolButtonStyle() {
         for (Map.Entry<EditToolMode, JButton> entry : adminToolButtons.entrySet()) {
-            applyAdminToolButtonStyle(entry.getValue(), entry.getKey() == activeEditToolMode);
+            applyAdminToolButtonStyle(entry.getValue(), entry.getKey() == viewState.getActiveEditToolMode());
         }
     }
 
@@ -519,6 +506,7 @@ public class MainView extends JFrame {
             @Override
             public void onInstructionSelected(int index) {
                 int segmentIndex = index;
+                RouteVisualizationDto currentRouteVisualization = viewState.getCurrentRouteVisualization();
                 if (currentRouteVisualization != null && currentRouteVisualization.getSegmentCount() > 0) {
                     int maxSegment = currentRouteVisualization.getSegmentCount() - 1;
                     if (segmentIndex > maxSegment) {
@@ -533,8 +521,8 @@ public class MainView extends JFrame {
         mapCanvas.setListener(new MapCanvas.Listener() {
             @Override
             public void onSelectionChanged(List<String> selectedVertexIds, String selectedEdgeKey) {
-                mapSelectedVertexIds = new ArrayList<String>(selectedVertexIds);
-                mapSelectedEdgeKey = selectedEdgeKey;
+                viewState.setSelectedVertexIds(selectedVertexIds);
+                viewState.setSelectedEdgeKey(selectedEdgeKey);
                 if (activeRoute == AppRoute.ADMIN_MODE) {
                     handleAdminMapSelectionContext();
                     return;
@@ -588,8 +576,8 @@ public class MainView extends JFrame {
 
             @Override
             public void onEdgeDraftChanged(String startVertexId) {
-                pendingEdgeStartVertexId = startVertexId;
-                if (activeRoute == AppRoute.ADMIN_MODE && activeEditToolMode == EditToolMode.ADD_EDGE) {
+                viewState.setPendingEdgeStartVertexId(startVertexId);
+                if (activeRoute == AppRoute.ADMIN_MODE && viewState.getActiveEditToolMode() == EditToolMode.ADD_EDGE) {
                     if (startVertexId == null) {
                         feedback.setStatus("管理员连线模式: 请选择第一点");
                     } else {
@@ -697,6 +685,8 @@ public class MainView extends JFrame {
         if (!isAdminEditingAvailable()) {
             return;
         }
+        String mapSelectedEdgeKey = viewState.getSelectedEdgeKey();
+        List<String> mapSelectedVertexIds = viewState.getSelectedVertexIds();
         if (mapSelectedEdgeKey != null) {
             handleMapDeleteEdge(mapSelectedEdgeKey);
             return;
@@ -730,6 +720,8 @@ public class MainView extends JFrame {
     }
 
     private void handleAdminMapSelectionContext() {
+        String mapSelectedEdgeKey = viewState.getSelectedEdgeKey();
+        List<String> mapSelectedVertexIds = viewState.getSelectedVertexIds();
         if (mapSelectedEdgeKey != null) {
             Edge selectedEdge = findRoadByEdgeKey(mapSelectedEdgeKey);
             if (selectedEdge != null) {
@@ -1058,6 +1050,7 @@ public class MainView extends JFrame {
         if (!isAdminEditingAvailable()) {
             return;
         }
+        List<String> mapSelectedVertexIds = viewState.getSelectedVertexIds();
         if (mapSelectedVertexIds.isEmpty()) {
             feedback.showErrorDialog("批量删除", "请先在地图中框选要删除的点位。");
             return;
@@ -1102,6 +1095,7 @@ public class MainView extends JFrame {
         if (!isAdminEditingAvailable()) {
             return;
         }
+        List<String> mapSelectedVertexIds = viewState.getSelectedVertexIds();
         if (mapSelectedVertexIds.size() < 2) {
             feedback.showErrorDialog("批量禁行", "请先框选至少两个点位。");
             return;
@@ -1147,6 +1141,7 @@ public class MainView extends JFrame {
         if (!isAdminEditingAvailable()) {
             return;
         }
+        String mapSelectedEdgeKey = viewState.getSelectedEdgeKey();
         if (mapSelectedEdgeKey == null) {
             feedback.showErrorDialog("禁行切换", "请先在地图上选中一条道路。");
             return;
@@ -1166,9 +1161,7 @@ public class MainView extends JFrame {
         Admin operator = currentAdmin;
         try {
             feedback.showLoading(loadingText);
-            command.execute(operator);
-            undoStack.push(command);
-            redoStack.clear();
+            adminCommandBus.execute(command, operator);
             refreshAllData();
             feedback.success(command.successMessage());
             feedback.setStatus("管理员模式: " + command.successMessage());
@@ -1182,7 +1175,7 @@ public class MainView extends JFrame {
     }
 
     private void undoLastEdit() {
-        if (undoStack.isEmpty()) {
+        if (!adminCommandBus.canUndo()) {
             feedback.info("没有可撤销的编辑。");
             return;
         }
@@ -1190,16 +1183,13 @@ public class MainView extends JFrame {
             return;
         }
         Admin operator = currentAdmin;
-        AdminEditCommand command = undoStack.pop();
         try {
             feedback.showLoading("正在撤销上一步编辑...");
-            command.undo(operator);
-            redoStack.push(command);
+            adminCommandBus.undo(operator);
             refreshAllData();
             feedback.info("撤销成功。");
             feedback.setStatus("管理员模式: 已撤销");
         } catch (RuntimeException ex) {
-            undoStack.push(command);
             feedback.showOperationError("撤销失败", ex);
             feedback.setStatus("管理员模式: 撤销失败");
         } finally {
@@ -1209,7 +1199,7 @@ public class MainView extends JFrame {
     }
 
     private void redoLastEdit() {
-        if (redoStack.isEmpty()) {
+        if (!adminCommandBus.canRedo()) {
             feedback.info("没有可重做的编辑。");
             return;
         }
@@ -1217,16 +1207,13 @@ public class MainView extends JFrame {
             return;
         }
         Admin operator = currentAdmin;
-        AdminEditCommand command = redoStack.pop();
         try {
             feedback.showLoading("正在重做上一步编辑...");
-            command.execute(operator);
-            undoStack.push(command);
+            adminCommandBus.redo(operator);
             refreshAllData();
             feedback.info("重做成功。");
             feedback.setStatus("管理员模式: 已重做");
         } catch (RuntimeException ex) {
-            redoStack.push(command);
             feedback.showOperationError("重做失败", ex);
             feedback.setStatus("管理员模式: 重做失败");
         } finally {
@@ -1237,10 +1224,10 @@ public class MainView extends JFrame {
 
     private void refreshUndoRedoButtons() {
         if (undoButton != null) {
-            undoButton.setEnabled(currentAdmin != null && !undoStack.isEmpty());
+            undoButton.setEnabled(currentAdmin != null && adminCommandBus.canUndo());
         }
         if (redoButton != null) {
-            redoButton.setEnabled(currentAdmin != null && !redoStack.isEmpty());
+            redoButton.setEnabled(currentAdmin != null && adminCommandBus.canRedo());
         }
     }
 
@@ -1359,14 +1346,14 @@ public class MainView extends JFrame {
             PathResult pathResult = result.getPathResult();
             pathQueryView.setResultContent(navigationController.format(pathResult));
             pathQueryView.setInstructions(pathResult.getNaviInstructions());
-            if (currentPathResult == null) {
-                previousRouteVisualization = null;
+            if (viewState.getCurrentPathResult() == null) {
+                viewState.setPreviousRouteVisualization(null);
             } else {
-                previousRouteVisualization = navigationController.toTraceRouteVisualization(currentPathResult);
+                viewState.setPreviousRouteVisualization(navigationController.toTraceRouteVisualization(viewState.getCurrentPathResult()));
             }
-            currentPathResult = pathResult;
-            currentRouteVisualization = result.getRouteVisualization();
-            mapCanvas.setRouteComparison(currentRouteVisualization, previousRouteVisualization);
+            viewState.setCurrentPathResult(pathResult);
+            viewState.setCurrentRouteVisualization(result.getRouteVisualization());
+            mapCanvas.setRouteComparison(viewState.getCurrentRouteVisualization(), viewState.getPreviousRouteVisualization());
             feedback.success("路径查询成功。");
             feedback.setStatus("用户模式: 路径查询完成");
         } catch (RuntimeException ex) {
@@ -1403,7 +1390,7 @@ public class MainView extends JFrame {
         List<Vertex> vertices = mapController.listVertices();
         List<Edge> roads = mapController.listRoads();
         mapCanvas.setGraphData(vertices, roads);
-        mapCanvas.setRouteComparison(currentRouteVisualization, previousRouteVisualization);
+        mapCanvas.setRouteComparison(viewState.getCurrentRouteVisualization(), viewState.getPreviousRouteVisualization());
     }
 
     private void refreshPlaceData(String selectedType) {
@@ -1525,6 +1512,7 @@ public class MainView extends JFrame {
 
     private void navigateTo(AppRoute route) {
         activeRoute = route;
+        viewState.setActiveRoute(route);
         if (route == AppRoute.ADMIN_MODE && currentAdmin == null) {
             showAdminLoginDialog();
         }
@@ -1543,10 +1531,12 @@ public class MainView extends JFrame {
             if (currentAdmin == null) {
                 return "管理员模式：请先登录，登录后可进行地图编辑与数据维护。";
             }
+            EditToolMode activeEditToolMode = viewState.getActiveEditToolMode();
             if (activeEditToolMode == EditToolMode.ADD_VERTEX) {
                 return "管理员模式-添加点：点击地图空白区域创建点位。";
             }
             if (activeEditToolMode == EditToolMode.ADD_EDGE) {
+                String pendingEdgeStartVertexId = viewState.getPendingEdgeStartVertexId();
                 if (pendingEdgeStartVertexId == null) {
                     return "管理员模式-连线：点击起点，再点击终点创建道路。";
                 }
@@ -1616,10 +1606,10 @@ public class MainView extends JFrame {
             button.setEnabled(enabled);
         }
         if (undoButton != null) {
-            undoButton.setEnabled(enabled && !undoStack.isEmpty());
+            undoButton.setEnabled(enabled && adminCommandBus.canUndo());
         }
         if (redoButton != null) {
-            redoButton.setEnabled(enabled && !redoStack.isEmpty());
+            redoButton.setEnabled(enabled && adminCommandBus.canRedo());
         }
         if (activeRoute == AppRoute.ADMIN_MODE) {
             mapWorkbenchView.setMapHint(resolveMapHint(AppRoute.ADMIN_MODE));
@@ -1644,12 +1634,7 @@ public class MainView extends JFrame {
         }
     }
 
-    private interface AdminEditCommand {
-        void execute(Admin admin);
-
-        void undo(Admin admin);
-
-        String successMessage();
+    private interface AdminEditCommand extends UndoableCommand<Admin> {
     }
 
     private static void addFormRow(JPanel panel, GridBagConstraints gbc, int row, String label, java.awt.Component component) {

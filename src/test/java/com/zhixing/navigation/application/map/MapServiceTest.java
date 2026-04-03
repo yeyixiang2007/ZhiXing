@@ -15,8 +15,8 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 class MapServiceTest {
-    private final User admin = new Admin("admin", "sha256$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    private final User normalUser = new NormalUser("guest", "sha256$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    private final User admin = new Admin("admin", "pbkdf2$120000$00112233445566778899aabbccddeeff$aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    private final User normalUser = new NormalUser("guest", "pbkdf2$120000$ffeeddccbbaa99887766554433221100$bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 
     @Test
     void shouldManageVertexCrudAndFilterByType() {

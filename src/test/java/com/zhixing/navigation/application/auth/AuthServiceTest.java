@@ -39,6 +39,16 @@ class AuthServiceTest {
         Assertions.assertThrows(AuthorizationException.class, () -> authService.loginAdmin("guest", "guest123"));
     }
 
+    @Test
+    void shouldRateLimitAfterConsecutiveFailures() throws IOException {
+        AuthService authService = createAuthServiceWithUsers();
+        for (int i = 0; i < 5; i++) {
+            Assertions.assertThrows(AuthenticationException.class, () -> authService.loginAdmin("admin", "wrong"));
+        }
+        AuthenticationException ex = Assertions.assertThrows(AuthenticationException.class, () -> authService.loginAdmin("admin", "admin123"));
+        Assertions.assertTrue(ex.getMessage().toLowerCase().contains("too many failed attempts"));
+    }
+
     private AuthService createAuthServiceWithUsers() throws IOException {
         Path dir = Files.createTempDirectory("zhixing-auth-test");
         PersistenceService persistenceService = new PersistenceService(dir);
@@ -51,4 +61,3 @@ class AuthServiceTest {
         return new AuthService(persistenceService);
     }
 }
-

@@ -77,10 +77,9 @@ public class MapCanvas extends JPanel {
     private final Map<Layer, Boolean> layerLocked;
     private final Map<Layer, Float> layerOpacity;
     private final List<Layer> renderOrder;
+    private final MapSceneCache sceneCache;
     private final Timer routeFlashTimer;
 
-    private BufferedImage sceneCache;
-    private boolean sceneDirty;
     private boolean projectionDirty;
 
     private double worldMinX;
@@ -147,7 +146,7 @@ public class MapCanvas extends JPanel {
             layerOpacity.put(layer, Float.valueOf(1.0f));
         }
 
-        this.sceneDirty = true;
+        this.sceneCache = new MapSceneCache();
         this.projectionDirty = true;
         this.zoom = 1.0;
         this.panX = 0;
@@ -418,8 +417,8 @@ public class MapCanvas extends JPanel {
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
             ensureSceneCache();
-            if (sceneCache != null) {
-                g2.drawImage(sceneCache, 0, 0, null);
+            if (sceneCache.image() != null) {
+                g2.drawImage(sceneCache.image(), 0, 0, null);
             }
 
             drawRouteComparison(g2);
@@ -435,17 +434,15 @@ public class MapCanvas extends JPanel {
         int width = Math.max(getWidth(), 1);
         int height = Math.max(getHeight(), 1);
 
-        if (sceneCache == null || sceneCache.getWidth() != width || sceneCache.getHeight() != height) {
-            sceneCache = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-            sceneDirty = true;
+        if (sceneCache.ensureSize(width, height)) {
             projectionDirty = true;
         }
 
-        if (!sceneDirty) {
+        if (!sceneCache.isDirty()) {
             return;
         }
 
-        Graphics2D g2 = sceneCache.createGraphics();
+        Graphics2D g2 = sceneCache.image().createGraphics();
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
@@ -455,7 +452,7 @@ public class MapCanvas extends JPanel {
         } finally {
             g2.dispose();
         }
-        sceneDirty = false;
+        sceneCache.markClean();
     }
 
     private void renderScene(Graphics2D g2) {
@@ -1037,7 +1034,7 @@ public class MapCanvas extends JPanel {
                 return;
             }
             if (edge != null) {
-                fireDeleteEdgeRequested(edgeKey(edge));
+                fireDeleteEdgeRequested(MapCanvasEdgeIndex.edgeKey(edge));
                 return;
             }
             if (isLayerLocked(Layer.VERTEX) && isLayerLocked(Layer.ROAD) && isLayerLocked(Layer.FORBIDDEN)) {
@@ -1084,7 +1081,7 @@ public class MapCanvas extends JPanel {
 
         Edge edge = findEdgeAt(point);
         if (edge != null) {
-            selectedEdgeKey = edgeKey(edge);
+            selectedEdgeKey = MapCanvasEdgeIndex.edgeKey(edge);
             if (!appendSelection) {
                 selectedVertexIds.clear();
             }
@@ -1125,54 +1122,25 @@ public class MapCanvas extends JPanel {
     }
 
     private Vertex findVertexAt(Point point) {
-        if (!isLayerVisible(Layer.VERTEX) || isLayerLocked(Layer.VERTEX)) {
-            return null;
-        }
-        Vertex nearest = null;
-        double nearestDist = Double.MAX_VALUE;
-        double threshold = 12;
-
-        for (Vertex vertex : vertices) {
-            Point2D.Double projected = project(vertex);
-            if (projected == null) {
-                continue;
-            }
-            double distance = point.distance(projected);
-            if (distance <= threshold && distance < nearestDist) {
-                nearest = vertex;
-                nearestDist = distance;
-            }
-        }
-        return nearest;
+        return MapCanvasHitTester.findVertexAt(
+                point,
+                vertices,
+                this::project,
+                isLayerVisible(Layer.VERTEX),
+                isLayerLocked(Layer.VERTEX),
+                12.0
+        );
     }
 
     private Edge findEdgeAt(Point point) {
-        List<Edge> renderableEdges = buildRenderableEdges();
-        Edge nearest = null;
-        double nearestDist = Double.MAX_VALUE;
-
-        for (Edge edge : renderableEdges) {
-            Layer targetLayer = edge.isForbidden() ? Layer.FORBIDDEN : Layer.ROAD;
-            boolean visible = isLayerVisible(targetLayer);
-            boolean locked = isLayerLocked(targetLayer);
-            if (!visible) {
-                continue;
-            }
-            if (locked) {
-                continue;
-            }
-            Point2D.Double from = project(edge.getFromVertex());
-            Point2D.Double to = project(edge.getToVertex());
-            if (from == null || to == null) {
-                continue;
-            }
-            double distance = Line2D.ptSegDist(from.x, from.y, to.x, to.y, point.x, point.y);
-            if (distance <= 6 && distance < nearestDist) {
-                nearest = edge;
-                nearestDist = distance;
-            }
-        }
-        return nearest;
+        return MapCanvasHitTester.findEdgeAt(
+                point,
+                buildRenderableEdges(),
+                this::project,
+                edge -> isLayerVisible(edge.isForbidden() ? Layer.FORBIDDEN : Layer.ROAD),
+                edge -> isLayerLocked(edge.isForbidden() ? Layer.FORBIDDEN : Layer.ROAD),
+                6.0
+        );
     }
 
     private Edge findEdgeByKey(String key) {
@@ -1180,7 +1148,7 @@ public class MapCanvas extends JPanel {
             return null;
         }
         for (Edge edge : buildRenderableEdges()) {
-            if (key.equals(edgeKey(edge))) {
+            if (key.equals(MapCanvasEdgeIndex.edgeKey(edge))) {
                 return edge;
             }
         }
@@ -1188,32 +1156,7 @@ public class MapCanvas extends JPanel {
     }
 
     private List<Edge> buildRenderableEdges() {
-        Map<String, Edge> deduped = new LinkedHashMap<String, Edge>();
-        for (Edge edge : edges) {
-            String key = edgeKey(edge);
-            Edge existing = deduped.get(key);
-            if (existing == null) {
-                deduped.put(key, edge);
-                continue;
-            }
-            // Keep deterministic representation while preferring forbidden state when inconsistent.
-            if (!existing.isForbidden() && edge.isForbidden()) {
-                deduped.put(key, edge);
-            }
-        }
-        return new ArrayList<Edge>(deduped.values());
-    }
-
-    private static String edgeKey(Edge edge) {
-        String from = edge.getFromVertex().getId();
-        String to = edge.getToVertex().getId();
-        if (edge.isOneWay()) {
-            return "ONE:" + from + "->" + to;
-        }
-        if (from.compareTo(to) <= 0) {
-            return "TWO:" + from + "<->" + to;
-        }
-        return "TWO:" + to + "<->" + from;
+        return MapCanvasEdgeIndex.dedupeForRender(edges);
     }
 
     private void updateProjection() {
@@ -1435,7 +1378,7 @@ public class MapCanvas extends JPanel {
 
     private void invalidateScene(boolean markSceneDirty, boolean markProjectionDirty) {
         if (markSceneDirty) {
-            sceneDirty = true;
+            sceneCache.markDirty();
         }
         if (markProjectionDirty) {
             projectionDirty = true;

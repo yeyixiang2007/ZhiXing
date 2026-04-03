@@ -38,8 +38,9 @@ import java.util.Scanner;
 public class QualityCheckRunner {
     private int passed;
     private int failed;
-    private long pathCostMs;
-    private long startupCostMs;
+    private double pathCostMs;
+    private double startupCostMs;
+    private double mapInteractionCostMs;
 
     public static void main(String[] args) {
         QualityCheckRunner runner = new QualityCheckRunner();
@@ -58,8 +59,9 @@ public class QualityCheckRunner {
         System.out.println("=== Quality Check Summary ===");
         System.out.println("Passed: " + passed);
         System.out.println("Failed: " + failed);
-        System.out.println("Path performance: " + pathCostMs + " ms");
-        System.out.println("Startup performance: " + startupCostMs + " ms");
+        System.out.println("Path performance(avg): " + formatMs(pathCostMs) + " ms");
+        System.out.println("Startup performance(avg): " + formatMs(startupCostMs) + " ms");
+        System.out.println("Map interaction(avg): " + formatMs(mapInteractionCostMs) + " ms");
 
         if (failed > 0) {
             System.exit(1);
@@ -274,7 +276,7 @@ public class QualityCheckRunner {
         persistence.loadUsersOrDefault();
 
         MapService mapService = new MapService(graph);
-        User normalUser = new NormalUser("guest", "sha256$0000000000000000000000000000000000000000000000000000000000000000");
+        User normalUser = new NormalUser("guest", "pbkdf2$120000$0102030405060708090a0b0c0d0e0f10$1111111111111111111111111111111111111111111111111111111111111111");
         Vertex extra = new Vertex("X1", "Test Point", PlaceType.OTHER, 1, 1, "");
 
         assertThrows(AuthorizationException.class, new CheckedRunnable() {
@@ -288,10 +290,16 @@ public class QualityCheckRunner {
     private void testPathPerformance() {
         CampusGraph graph = buildPerformanceGraph(200, 500);
         NavigationService navigationService = new NavigationService(new DijkstraStrategy());
+        int rounds = 8;
+        long totalNs = 0;
+        PathResult result = null;
 
-        long startNs = System.nanoTime();
-        PathResult result = navigationService.navigate(graph, "V0", "V199");
-        pathCostMs = elapsedMs(startNs);
+        for (int i = 0; i < rounds; i++) {
+            long startNs = System.nanoTime();
+            result = navigationService.navigate(graph, "V0", "V199");
+            totalNs += (System.nanoTime() - startNs);
+        }
+        pathCostMs = nanosToMs(totalNs / (double) rounds);
 
         assertTrue(result.getTotalDistance() > 0, "性能测试路径应可达");
         assertTrue(pathCostMs <= 1000, "路径计算耗时应<=1000ms，当前=" + pathCostMs + "ms");
@@ -303,10 +311,16 @@ public class QualityCheckRunner {
         persistence.loadGraphOrDefault();
         persistence.loadUsersOrDefault();
 
-        long startNs = System.nanoTime();
-        CampusGraph graph = persistence.loadGraphOrDefault();
-        persistence.loadUsersOrDefault();
-        startupCostMs = elapsedMs(startNs);
+        int rounds = 6;
+        long totalNs = 0;
+        CampusGraph graph = null;
+        for (int i = 0; i < rounds; i++) {
+            long startNs = System.nanoTime();
+            graph = persistence.loadGraphOrDefault();
+            persistence.loadUsersOrDefault();
+            totalNs += (System.nanoTime() - startNs);
+        }
+        startupCostMs = nanosToMs(totalNs / (double) rounds);
 
         assertTrue(graph.vertexCount() > 0, "启动加载后应有默认地图");
         assertTrue(startupCostMs <= 2000, "启动加载耗时应<=2000ms，当前=" + startupCostMs + "ms");
@@ -329,18 +343,23 @@ public class QualityCheckRunner {
                 navigationController.queryPath("V0", "V199")
         );
 
-        long startNs = System.nanoTime();
-        mapCanvas.setGraphData(vertices, edges);
-        mapCanvas.setRouteComparison(route, null);
-        mapCanvas.setLayerVisible(MapCanvas.Layer.LABEL, false);
-        mapCanvas.setLayerVisible(MapCanvas.Layer.LABEL, true);
-        mapCanvas.resetViewport();
+        int rounds = 5;
+        long totalNs = 0;
         int iterations = Math.min(route.getSegmentCount(), 40);
-        for (int i = 0; i < iterations; i++) {
-            mapCanvas.focusRouteSegment(i);
+        for (int r = 0; r < rounds; r++) {
+            long startNs = System.nanoTime();
+            mapCanvas.setGraphData(vertices, edges);
+            mapCanvas.setRouteComparison(route, null);
+            mapCanvas.setLayerVisible(MapCanvas.Layer.LABEL, false);
+            mapCanvas.setLayerVisible(MapCanvas.Layer.LABEL, true);
+            mapCanvas.resetViewport();
+            for (int i = 0; i < iterations; i++) {
+                mapCanvas.focusRouteSegment(i);
+            }
+            totalNs += (System.nanoTime() - startNs);
         }
-        long interactionCostMs = elapsedMs(startNs);
-        assertTrue(interactionCostMs <= 1000, "地图交互耗时应<=1000ms，当前=" + interactionCostMs + "ms");
+        mapInteractionCostMs = nanosToMs(totalNs / (double) rounds);
+        assertTrue(mapInteractionCostMs <= 1000, "地图交互耗时应<=1000ms，当前=" + mapInteractionCostMs + "ms");
     }
 
     private CampusGraph buildPerformanceGraph(int vertexSize, int edgeBudget) {
@@ -400,6 +419,14 @@ public class QualityCheckRunner {
 
     private static long elapsedMs(long startNs) {
         return (System.nanoTime() - startNs) / 1_000_000;
+    }
+
+    private static double nanosToMs(double nanos) {
+        return nanos / 1_000_000.0;
+    }
+
+    private static String formatMs(double ms) {
+        return String.format("%.3f", ms);
     }
 
     private static void assertTrue(boolean expression, String message) {
