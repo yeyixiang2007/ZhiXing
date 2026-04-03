@@ -5,7 +5,6 @@ import com.zhixing.navigation.domain.model.PlaceType;
 import com.zhixing.navigation.domain.model.RoadType;
 import com.zhixing.navigation.domain.model.Vertex;
 import com.zhixing.navigation.gui.model.RouteVisualizationDto;
-import com.zhixing.navigation.gui.styles.UiStyles;
 
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
@@ -13,24 +12,18 @@ import javax.swing.Timer;
 import javax.swing.AbstractAction;
 import javax.swing.JComponent;
 import javax.swing.KeyStroke;
-import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Cursor;
-import java.awt.Font;
-import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
-import java.awt.Stroke;
 import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.MouseWheelListener;
-import java.awt.geom.Line2D;
-import java.awt.geom.Path2D;
 import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -39,7 +32,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -65,15 +57,12 @@ public class MapCanvas extends JPanel {
     private static final double MOVE_HIT_THRESHOLD_PIXELS = 20.0;
     private static final int PAN_VISIBLE_MIN_PIXELS = 36;
     private static final double PAN_OVERSCROLL_FACTOR = 0.35;
-    private static final Stroke GRID_STROKE = new BasicStroke(1f);
-    private static final Stroke ALIGNMENT_GUIDE_STROKE = new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{8f, 6f}, 0f);
     private static final int FLASH_CYCLE_LIMIT = 8;
     private static final int FLASH_INTERVAL_MS = 180;
 
     private final List<Vertex> vertices;
     private final List<Edge> edges;
     private final Map<String, Vertex> vertexIndex;
-    private final Map<String, LabelMetrics> labelMetricsCache;
     private final Map<String, Point2D.Double> projectedVertexCache;
     private final Set<String> selectedVertexIds;
     private final Map<Layer, Boolean> layerVisibility;
@@ -81,6 +70,9 @@ public class MapCanvas extends JPanel {
     private final Map<Layer, Float> layerOpacity;
     private final List<Layer> renderOrder;
     private final MapSceneCache sceneCache;
+    private final MapCanvasBaseSceneRenderer baseSceneRenderer;
+    private final MapCanvasRouteRenderer routeRenderer;
+    private final MapCanvasOverlayRenderer overlayRenderer;
     private final Timer routeFlashTimer;
 
     private boolean projectionDirty;
@@ -114,9 +106,6 @@ public class MapCanvas extends JPanel {
     private Point2D.Double draggingPreviewWorld;
     private boolean spacePanMode;
     private SnapGuide activeSnapGuide;
-
-    private Font labelFont;
-    private boolean wasAntialias;
     private RouteVisualizationDto currentRouteVisualization;
     private RouteVisualizationDto previousRouteVisualization;
     private BufferedImage referenceImage;
@@ -139,7 +128,6 @@ public class MapCanvas extends JPanel {
         this.vertices = new ArrayList<Vertex>();
         this.edges = new ArrayList<Edge>();
         this.vertexIndex = new HashMap<String, Vertex>();
-        this.labelMetricsCache = new HashMap<String, LabelMetrics>();
         this.projectedVertexCache = new HashMap<String, Point2D.Double>();
         this.selectedVertexIds = new LinkedHashSet<String>();
         this.layerVisibility = new EnumMap<Layer, Boolean>(Layer.class);
@@ -154,6 +142,9 @@ public class MapCanvas extends JPanel {
         }
 
         this.sceneCache = new MapSceneCache();
+        this.baseSceneRenderer = new MapCanvasBaseSceneRenderer();
+        this.routeRenderer = new MapCanvasRouteRenderer();
+        this.overlayRenderer = new MapCanvasOverlayRenderer();
         this.projectionDirty = true;
         this.zoom = 1.0;
         this.panX = 0;
@@ -484,12 +475,44 @@ public class MapCanvas extends JPanel {
                 g2.drawImage(sceneCache.image(), 0, 0, null);
             }
 
-            drawRouteComparison(g2);
-            drawSelectionOverlay(g2);
-            drawDraggingVertexPreview(g2);
-            drawSnapGuide(g2);
-            drawSelectionRect(g2);
-            drawScaleBar(g2);
+            routeRenderer.draw(
+                    g2,
+                    currentRouteVisualization,
+                    previousRouteVisualization,
+                    focusedRouteSegmentIndex,
+                    focusedSegmentVisible,
+                    this::projectVertexById
+            );
+            overlayRenderer.drawOverlay(
+                    g2,
+                    getHeight(),
+                    VIEW_PADDING,
+                    zoom,
+                    baseScale,
+                    metersPerWorldUnit,
+                    worldMinX,
+                    worldMaxX,
+                    worldMinY,
+                    worldMaxY,
+                    selectedVertexIds,
+                    selectedEdgeKey,
+                    pendingEdgeStartVertexId,
+                    dragMode == DragMode.MOVE_VERTEX,
+                    draggingVertexId,
+                    draggingPreviewWorld,
+                    selectionRect,
+                    activeSnapGuide != null && !activeSnapGuide.isEmpty(),
+                    activeSnapGuide != null && activeSnapGuide.vertical,
+                    activeSnapGuide != null && activeSnapGuide.horizontal,
+                    activeSnapGuide == null ? 0.0 : activeSnapGuide.worldX,
+                    activeSnapGuide == null ? 0.0 : activeSnapGuide.worldY,
+                    this::isLayerVisible,
+                    vertexIndex::get,
+                    this::findEdgeByKey,
+                    vertex -> project(vertex),
+                    world -> project(world),
+                    MapCanvas::placeColor
+            );
         } finally {
             g2.dispose();
         }
@@ -522,307 +545,31 @@ public class MapCanvas extends JPanel {
 
     private void renderScene(Graphics2D g2) {
         updateProjection();
-        drawReferenceImageLayer(g2);
-        drawGrid(g2);
-
-        for (Layer layer : renderOrder) {
-            if (!isLayerVisible(layer)) {
-                continue;
-            }
-            if (layer == Layer.ROAD) {
-                drawRoadLayer(g2, false);
-            } else if (layer == Layer.FORBIDDEN) {
-                drawRoadLayer(g2, true);
-            } else if (layer == Layer.VERTEX) {
-                drawVertexLayer(g2);
-            } else if (layer == Layer.LABEL) {
-                drawLabelLayer(g2);
-            }
-        }
-    }
-
-    private void drawReferenceImageLayer(Graphics2D g2) {
-        if (referenceImage == null) {
-            return;
-        }
-        // Keep reference texture in the same coordinate scale as map projection.
-        double pixelsPerWorldUnit = Math.max(baseScale * zoom, 0.001);
-        double tileWidth = Math.max(16.0, referenceImage.getWidth() * referenceImageScale * pixelsPerWorldUnit);
-        double tileHeight = Math.max(16.0, referenceImage.getHeight() * referenceImageScale * pixelsPerWorldUnit);
-        int tileWidthInt = Math.max(1, (int) Math.round(tileWidth));
-        int tileHeightInt = Math.max(1, (int) Math.round(tileHeight));
-        if (tileWidthInt <= 0 || tileHeightInt <= 0) {
-            return;
-        }
-
-        Point2D.Double worldOrigin = project(new Point2D.Double(0.0, 0.0));
-        int anchorX = worldOrigin == null ? 0 : (int) Math.round(worldOrigin.x);
-        int anchorY = worldOrigin == null ? 0 : (int) Math.round(worldOrigin.y);
-        int startX = floorMod(anchorX, tileWidthInt) - tileWidthInt;
-        int startY = floorMod(anchorY, tileHeightInt) - tileHeightInt;
-
-        for (int x = startX; x < getWidth(); x += tileWidthInt) {
-            for (int y = startY; y < getHeight(); y += tileHeightInt) {
-                g2.drawImage(referenceImage, x, y, tileWidthInt, tileHeightInt, null);
-            }
-        }
-    }
-
-    private void drawGrid(Graphics2D g2) {
-        g2.setColor(new Color(231, 236, 243));
-        g2.setStroke(GRID_STROKE);
-
-        int step = 80;
-        for (int x = VIEW_PADDING; x < getWidth() - VIEW_PADDING; x += step) {
-            g2.drawLine(x, VIEW_PADDING, x, getHeight() - VIEW_PADDING);
-        }
-        for (int y = VIEW_PADDING; y < getHeight() - VIEW_PADDING; y += step) {
-            g2.drawLine(VIEW_PADDING, y, getWidth() - VIEW_PADDING, y);
-        }
-    }
-
-    private void drawRoadLayer(Graphics2D g2, boolean forbiddenLayer) {
-        Layer targetLayer = forbiddenLayer ? Layer.FORBIDDEN : Layer.ROAD;
-        float opacity = getLayerOpacity(targetLayer);
-        List<Edge> renderableEdges = buildRenderableEdges();
-        for (Edge edge : renderableEdges) {
-            if (forbiddenLayer != edge.isForbidden()) {
-                continue;
-            }
-
-            Point2D.Double from = project(edge.getFromVertex());
-            Point2D.Double to = project(edge.getToVertex());
-            if (from == null || to == null) {
-                continue;
-            }
-
-            Color color = forbiddenLayer ? new Color(204, 51, 48) : roadColor(edge.getRoadType());
-            color = withOpacity(color, opacity);
-            float width = forbiddenLayer ? 4.0f : roadWidth(edge.getRoadType());
-            Stroke stroke = forbiddenLayer
-                    ? new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{10f, 8f}, 0f)
-                    : new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
-
-            g2.setColor(color);
-            g2.setStroke(stroke);
-            g2.draw(new Line2D.Double(from, to));
-
-            if (!forbiddenLayer && edge.isOneWay()) {
-                drawDirectionArrow(g2, from, to, color);
-            }
-        }
-    }
-
-    private void drawDirectionArrow(Graphics2D g2, Point2D.Double from, Point2D.Double to, Color color) {
-        double dx = to.x - from.x;
-        double dy = to.y - from.y;
-        double length = Math.hypot(dx, dy);
-        if (length < 8) {
-            return;
-        }
-
-        double ux = dx / length;
-        double uy = dy / length;
-
-        double arrowX = from.x + ux * (length * 0.55);
-        double arrowY = from.y + uy * (length * 0.55);
-        double side = Math.max(6.0, 6.0 * zoom);
-
-        Path2D path = new Path2D.Double();
-        path.moveTo(arrowX, arrowY);
-        path.lineTo(arrowX - ux * side - uy * side * 0.5, arrowY - uy * side + ux * side * 0.5);
-        path.lineTo(arrowX - ux * side + uy * side * 0.5, arrowY - uy * side - ux * side * 0.5);
-        path.closePath();
-
-        g2.setColor(color);
-        g2.fill(path);
-    }
-
-    private void drawVertexLayer(Graphics2D g2) {
-        float opacity = getLayerOpacity(Layer.VERTEX);
-        for (Vertex vertex : vertices) {
-            Point2D.Double point = project(vertex);
-            if (point == null) {
-                continue;
-            }
-
-            int radius = (int) clamp(6 + zoom * 2, 6, 12);
-            int diameter = radius * 2;
-            int left = (int) Math.round(point.x) - radius;
-            int top = (int) Math.round(point.y) - radius;
-
-            g2.setColor(withOpacity(placeColor(vertex.getType()), opacity));
-            g2.fillOval(left, top, diameter, diameter);
-            g2.setColor(withOpacity(Color.WHITE, opacity));
-            g2.setStroke(new BasicStroke(1.2f));
-            g2.drawOval(left, top, diameter, diameter);
-        }
-    }
-
-    private void drawLabelLayer(Graphics2D g2) {
-        float opacity = getLayerOpacity(Layer.LABEL);
-        Font base = UiStyles.BODY_FONT;
-        Font scaled = base.deriveFont((float) clamp(base.getSize2D() * zoom, 11f, 16f));
-        g2.setFont(scaled);
-
-        boolean antialias = RenderingHints.VALUE_TEXT_ANTIALIAS_ON.equals(g2.getRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING));
-        if (!scaled.equals(labelFont) || antialias != wasAntialias) {
-            labelMetricsCache.clear();
-            labelFont = scaled;
-            wasAntialias = antialias;
-        }
-
-        FontMetrics metrics = g2.getFontMetrics(scaled);
-        g2.setColor(UiStyles.TEXT_PRIMARY);
-
-        for (Vertex vertex : vertices) {
-            Point2D.Double point = project(vertex);
-            if (point == null) {
-                continue;
-            }
-
-            LabelMetrics labelMetrics = getLabelMetrics(metrics, vertex.getName());
-            int x = (int) Math.round(point.x + 9);
-            int y = (int) Math.round(point.y - 8);
-
-            g2.setColor(withOpacity(new Color(255, 255, 255, 220), opacity));
-            g2.fillRoundRect(x - 3, y - labelMetrics.ascent, labelMetrics.width + 6, labelMetrics.height + 2, 8, 8);
-            g2.setColor(withOpacity(UiStyles.TEXT_PRIMARY, opacity));
-            g2.drawString(vertex.getName(), x, y);
-        }
-    }
-
-    private void drawRouteComparison(Graphics2D g2) {
-        if (previousRouteVisualization != null && previousRouteVisualization.getSegmentCount() > 0) {
-            drawRouteSegments(g2, previousRouteVisualization, -1, false);
-        }
-        if (currentRouteVisualization != null && currentRouteVisualization.getSegmentCount() > 0) {
-            drawRouteSegments(g2, currentRouteVisualization, focusedRouteSegmentIndex, true);
-            if (currentRouteVisualization.isShowMarkers()) {
-                drawRouteMarkers(g2, currentRouteVisualization);
-            }
-            if (currentRouteVisualization.isShowStepBadges()) {
-                drawRouteStepBadges(g2, currentRouteVisualization);
-            }
-        }
-    }
-
-    private void drawRouteSegments(Graphics2D g2, RouteVisualizationDto routeVisualization, int focusedIndex, boolean respectFocusedBlink) {
-        for (RouteVisualizationDto.Segment segment : routeVisualization.getSegments()) {
-            Point2D.Double from = projectVertexById(segment.getFromVertexId());
-            Point2D.Double to = projectVertexById(segment.getToVertexId());
-            if (from == null || to == null) {
-                continue;
-            }
-            if (respectFocusedBlink && segment.getIndex() == focusedIndex && !focusedSegmentVisible) {
-                continue;
-            }
-            Stroke stroke = segment.isDashed()
-                    ? new BasicStroke(segment.getStrokeWidth(), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{14f, 10f}, 0f)
-                    : new BasicStroke(segment.getStrokeWidth(), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
-            g2.setColor(segment.getStrokeColor());
-            g2.setStroke(stroke);
-            g2.draw(new Line2D.Double(from, to));
-        }
-    }
-
-    private void drawRouteMarkers(Graphics2D g2, RouteVisualizationDto routeVisualization) {
-        List<String> vertexIds = routeVisualization.getVertexIds();
-        if (vertexIds.isEmpty()) {
-            return;
-        }
-        Point2D.Double start = projectVertexById(vertexIds.get(0));
-        Point2D.Double end = projectVertexById(vertexIds.get(vertexIds.size() - 1));
-        if (start != null) {
-            drawMarker(g2, start, "S", routeVisualization.getStartMarkerColor());
-        }
-        if (end != null) {
-            drawMarker(g2, end, "E", routeVisualization.getEndMarkerColor());
-        }
-    }
-
-    private void drawRouteStepBadges(Graphics2D g2, RouteVisualizationDto routeVisualization) {
-        Font previous = g2.getFont();
-        g2.setFont(UiStyles.CAPTION_FONT);
-        for (RouteVisualizationDto.Segment segment : routeVisualization.getSegments()) {
-            Point2D.Double from = projectVertexById(segment.getFromVertexId());
-            Point2D.Double to = projectVertexById(segment.getToVertexId());
-            if (from == null || to == null) {
-                continue;
-            }
-            double cx = (from.x + to.x) / 2.0;
-            double cy = (from.y + to.y) / 2.0;
-            int radius = 10;
-
-            g2.setColor(segment.getIndex() == focusedRouteSegmentIndex
-                    ? routeVisualization.getFocusedBadgeFillColor()
-                    : routeVisualization.getBadgeFillColor());
-            g2.fillOval((int) Math.round(cx) - radius, (int) Math.round(cy) - radius, radius * 2, radius * 2);
-            g2.setColor(new Color(102, 114, 128));
-            g2.setStroke(new BasicStroke(1.2f));
-            g2.drawOval((int) Math.round(cx) - radius, (int) Math.round(cy) - radius, radius * 2, radius * 2);
-
-            String text = String.valueOf(segment.getIndex() + 1);
-            FontMetrics fm = g2.getFontMetrics();
-            int tx = (int) Math.round(cx) - fm.stringWidth(text) / 2;
-            int ty = (int) Math.round(cy) + fm.getAscent() / 2 - 2;
-            g2.setColor(UiStyles.TEXT_PRIMARY);
-            g2.drawString(text, tx, ty);
-        }
-        g2.setFont(previous);
-    }
-
-    private void drawMarker(Graphics2D g2, Point2D.Double point, String text, Color fillColor) {
-        int radius = 12;
-        int cx = (int) Math.round(point.x);
-        int cy = (int) Math.round(point.y);
-
-        g2.setColor(fillColor);
-        g2.fillOval(cx - radius, cy - radius, radius * 2, radius * 2);
-        g2.setColor(Color.WHITE);
-        g2.setStroke(new BasicStroke(1.5f));
-        g2.drawOval(cx - radius, cy - radius, radius * 2, radius * 2);
-
-        Font previous = g2.getFont();
-        g2.setFont(UiStyles.CAPTION_FONT.deriveFont(Font.BOLD));
-        FontMetrics metrics = g2.getFontMetrics();
-        int tx = cx - metrics.stringWidth(text) / 2;
-        int ty = cy + metrics.getAscent() / 2 - 2;
-        g2.drawString(text, tx, ty);
-        g2.setFont(previous);
-    }
-
-    private void drawScaleBar(Graphics2D g2) {
-        if (metersPerWorldUnit <= 0) {
-            return;
-        }
-        updateProjection();
-        double pixelsPerWorldUnit = Math.max(baseScale * zoom, 0.000001);
-        double pixelsPerMeter = pixelsPerWorldUnit / metersPerWorldUnit;
-        if (pixelsPerMeter <= 0 || Double.isInfinite(pixelsPerMeter) || Double.isNaN(pixelsPerMeter)) {
-            return;
-        }
-
-        double targetPixels = 120.0;
-        double targetMeters = targetPixels / pixelsPerMeter;
-        double displayMeters = chooseNiceDistance(targetMeters);
-        int barPixels = (int) Math.round(displayMeters * pixelsPerMeter);
-        barPixels = Math.max(40, Math.min(barPixels, 240));
-
-        int x = VIEW_PADDING + 14;
-        int y = Math.max(getHeight() - 24, VIEW_PADDING + 28);
-        g2.setColor(new Color(255, 255, 255, 220));
-        g2.fillRoundRect(x - 8, y - 18, barPixels + 52, 28, 10, 10);
-
-        g2.setColor(new Color(45, 57, 72));
-        g2.setStroke(new BasicStroke(2.2f));
-        g2.drawLine(x, y, x + barPixels, y);
-        g2.drawLine(x, y - 5, x, y + 5);
-        g2.drawLine(x + barPixels, y - 5, x + barPixels, y + 5);
-
-        String label = formatDistanceLabel(displayMeters);
-        g2.setFont(UiStyles.CAPTION_FONT);
-        g2.drawString(label, x + barPixels + 10, y + 5);
+        baseSceneRenderer.drawScene(
+                g2,
+                getWidth(),
+                getHeight(),
+                VIEW_PADDING,
+                zoom,
+                baseScale,
+                worldMinX,
+                worldMaxX,
+                worldMinY,
+                worldMaxY,
+                referenceImage,
+                referenceImageScale,
+                renderOrder,
+                edges,
+                vertices,
+                this::isLayerVisible,
+                layer -> Float.valueOf(getLayerOpacity(layer)),
+                vertex -> project(vertex),
+                world -> project(world),
+                MapCanvas::roadColor,
+                roadType -> Float.valueOf(roadWidth(roadType)),
+                MapCanvas::placeColor,
+                MapCanvas::withOpacity
+        );
     }
 
     private Point2D.Double projectVertexById(String vertexId) {
@@ -831,133 +578,6 @@ public class MapCanvas extends JPanel {
         }
         Vertex vertex = vertexIndex.get(vertexId);
         return project(vertex);
-    }
-
-    private void drawSelectionOverlay(Graphics2D g2) {
-        if (!selectedVertexIds.isEmpty() && isLayerVisible(Layer.VERTEX)) {
-            g2.setStroke(new BasicStroke(2.0f));
-            for (String vertexId : selectedVertexIds) {
-                Vertex vertex = vertexIndex.get(vertexId);
-                Point2D.Double point = project(vertex);
-                if (point == null) {
-                    continue;
-                }
-                int radius = (int) clamp(10 + zoom * 2, 10, 16);
-                int diameter = radius * 2;
-                int left = (int) Math.round(point.x) - radius;
-                int top = (int) Math.round(point.y) - radius;
-                g2.setColor(new Color(255, 196, 0));
-                g2.drawOval(left, top, diameter, diameter);
-            }
-        }
-
-        if (selectedEdgeKey != null) {
-            Edge edge = findEdgeByKey(selectedEdgeKey);
-            if (edge != null) {
-                Point2D.Double from = project(edge.getFromVertex());
-                Point2D.Double to = project(edge.getToVertex());
-                if (from != null && to != null) {
-                    g2.setColor(new Color(255, 153, 0));
-                    g2.setStroke(new BasicStroke(5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-                    g2.draw(new Line2D.Double(from, to));
-                }
-            }
-        }
-
-        if (pendingEdgeStartVertexId != null) {
-            Vertex seed = vertexIndex.get(pendingEdgeStartVertexId);
-            Point2D.Double seedPoint = project(seed);
-            if (seedPoint != null) {
-                int radius = 16;
-                int diameter = radius * 2;
-                int left = (int) Math.round(seedPoint.x) - radius;
-                int top = (int) Math.round(seedPoint.y) - radius;
-                g2.setColor(new Color(0, 191, 255, 180));
-                g2.setStroke(new BasicStroke(2.3f));
-                g2.drawOval(left, top, diameter, diameter);
-            }
-        }
-    }
-
-    private void drawDraggingVertexPreview(Graphics2D g2) {
-        if (dragMode != DragMode.MOVE_VERTEX || draggingVertexId == null || draggingPreviewWorld == null || !isLayerVisible(Layer.VERTEX)) {
-            return;
-        }
-        Vertex vertex = vertexIndex.get(draggingVertexId);
-        if (vertex == null) {
-            return;
-        }
-        Point2D.Double from = project(vertex);
-        Point2D.Double to = project(draggingPreviewWorld);
-        if (to == null) {
-            return;
-        }
-        if (from != null) {
-            g2.setColor(new Color(0, 156, 255, 180));
-            g2.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{5f, 5f}, 0f));
-            g2.draw(new Line2D.Double(from, to));
-        }
-
-        int radius = (int) clamp(8 + zoom * 2, 8, 14);
-        int left = (int) Math.round(to.x) - radius;
-        int top = (int) Math.round(to.y) - radius;
-        int diameter = radius * 2;
-        g2.setColor(new Color(255, 255, 255, 230));
-        g2.fillOval(left - 2, top - 2, diameter + 4, diameter + 4);
-        g2.setColor(new Color(30, 106, 255));
-        g2.setStroke(new BasicStroke(2.1f));
-        g2.drawOval(left - 2, top - 2, diameter + 4, diameter + 4);
-        g2.setColor(placeColor(vertex.getType()));
-        g2.fillOval(left, top, diameter, diameter);
-        g2.setColor(Color.WHITE);
-        g2.setStroke(new BasicStroke(1.2f));
-        g2.drawOval(left, top, diameter, diameter);
-    }
-
-    private void drawSelectionRect(Graphics2D g2) {
-        if (selectionRect == null) {
-            return;
-        }
-        g2.setColor(new Color(30, 106, 255, 35));
-        g2.fill(selectionRect);
-        g2.setColor(new Color(30, 106, 255, 160));
-        g2.setStroke(new BasicStroke(1.2f));
-        g2.draw(selectionRect);
-    }
-
-    private void drawSnapGuide(Graphics2D g2) {
-        if (activeSnapGuide == null || activeSnapGuide.isEmpty()) {
-            return;
-        }
-        g2.setColor(new Color(0, 156, 255, 190));
-        Stroke previous = g2.getStroke();
-        g2.setStroke(ALIGNMENT_GUIDE_STROKE);
-        if (activeSnapGuide.vertical) {
-            Point2D.Double top = project(new Point2D.Double(activeSnapGuide.worldX, worldMinY));
-            Point2D.Double bottom = project(new Point2D.Double(activeSnapGuide.worldX, worldMaxY));
-            if (top != null && bottom != null) {
-                g2.draw(new Line2D.Double(top, bottom));
-            }
-        }
-        if (activeSnapGuide.horizontal) {
-            Point2D.Double left = project(new Point2D.Double(worldMinX, activeSnapGuide.worldY));
-            Point2D.Double right = project(new Point2D.Double(worldMaxX, activeSnapGuide.worldY));
-            if (left != null && right != null) {
-                g2.draw(new Line2D.Double(left, right));
-            }
-        }
-        g2.setStroke(previous);
-    }
-
-    private LabelMetrics getLabelMetrics(FontMetrics metrics, String text) {
-        String key = text == null ? "" : text;
-        LabelMetrics cached = labelMetricsCache.get(key);
-        if (cached != null) {
-            return cached;
-        }
-        LabelMetrics created = new LabelMetrics(metrics.stringWidth(key), metrics.getHeight(), metrics.getAscent());
-        labelMetricsCache.put(key, created);
-        return created;
     }
 
     private void installKeyboardShortcuts() {
@@ -982,142 +602,33 @@ public class MapCanvas extends JPanel {
     }
 
     private void installInteractions() {
-        MouseAdapter mouseHandler = new MouseAdapter() {
+        MouseAdapter mouseHandler = createMouseHandler();
+        addMouseListener(mouseHandler);
+        addMouseMotionListener(mouseHandler);
+        addMouseWheelListener(createMouseWheelHandler());
+    }
+
+    private MouseAdapter createMouseHandler() {
+        return new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent event) {
-                requestFocusInWindow();
-                dragStartPoint = event.getPoint();
-                dragCurrentPoint = event.getPoint();
-                activeSnapGuide = SnapGuide.none();
-                draggingPreviewWorld = null;
-
-                if (SwingUtilities.isMiddleMouseButton(event) || SwingUtilities.isRightMouseButton(event)) {
-                    dragMode = DragMode.PAN;
-                    return;
-                }
-
-                if (!SwingUtilities.isLeftMouseButton(event)) {
-                    return;
-                }
-
-                if (spacePanMode) {
-                    dragMode = DragMode.PAN;
-                    return;
-                }
-
-                if (editToolMode == EditToolMode.MOVE_VERTEX) {
-                    Vertex vertex = findVertexAt(event.getPoint());
-                    if (vertex != null) {
-                        draggingVertexId = vertex.getId();
-                        draggingVertexMoved = false;
-                        draggingPreviewWorld = new Point2D.Double(vertex.getX(), vertex.getY());
-                        dragMode = DragMode.MOVE_VERTEX;
-                        return;
-                    }
-                }
-
-                if (editToolMode == EditToolMode.SELECT) {
-                    dragMode = DragMode.BOX_SELECT;
-                    selectionRect = new Rectangle(event.getX(), event.getY(), 0, 0);
-                    repaint(selectionRect);
-                    return;
-                }
-
-                dragMode = DragMode.NONE;
+                handleMousePressed(event);
             }
 
             @Override
             public void mouseDragged(MouseEvent event) {
-                if (dragStartPoint == null) {
-                    return;
-                }
-                if (dragMode == DragMode.PAN) {
-                    int dx = event.getX() - dragCurrentPoint.x;
-                    int dy = event.getY() - dragCurrentPoint.y;
-                    panX += dx;
-                    panY += dy;
-                    clampPanOffsets();
-                    dragCurrentPoint = event.getPoint();
-                    invalidateScene(true, true);
-                    repaint();
-                    fireViewportChanged();
-                    return;
-                }
-                if (dragMode == DragMode.BOX_SELECT) {
-                    Rectangle oldRect = selectionRect == null ? null : new Rectangle(selectionRect);
-                    selectionRect = createRect(dragStartPoint, event.getPoint());
-                    dragCurrentPoint = event.getPoint();
-                    repaintUnion(oldRect, selectionRect);
-                    return;
-                }
-                if (dragMode == DragMode.MOVE_VERTEX) {
-                    if (draggingVertexId != null) {
-                        if (!draggingVertexMoved) {
-                            draggingVertexMoved = event.getPoint().distance(dragStartPoint) > 2.0;
-                        }
-                        Point2D.Double world = toWorld(event.getPoint());
-                        draggingPreviewWorld = world;
-                        activeSnapGuide = SnapGuide.none();
-                        repaint();
-                    }
-                }
+                handleMouseDragged(event);
             }
 
             @Override
             public void mouseReleased(MouseEvent event) {
-                if (dragMode == DragMode.PAN) {
-                    activeSnapGuide = SnapGuide.none();
-                    resetDragState();
-                    return;
-                }
-
-                if (!SwingUtilities.isLeftMouseButton(event)) {
-                    resetDragState();
-                    return;
-                }
-
-                if (dragMode == DragMode.MOVE_VERTEX) {
-                    if (draggingVertexId != null && (draggingVertexMoved || event.getPoint().distance(dragStartPoint) > 2.0)) {
-                        Point2D.Double target = draggingPreviewWorld != null ? draggingPreviewWorld : toWorld(event.getPoint());
-                        fireMoveVertexRequested(draggingVertexId, target.x, target.y);
-                    } else if (draggingVertexId != null) {
-                        handleSingleSelection(event.getPoint(), event.isControlDown());
-                    }
-                    activeSnapGuide = SnapGuide.none();
-                    resetDragState();
-                    return;
-                }
-
-                if (editToolMode == EditToolMode.SELECT && dragMode == DragMode.BOX_SELECT) {
-                    Rectangle finalRect = selectionRect == null ? createRect(dragStartPoint, event.getPoint()) : selectionRect;
-                    boolean clickAction = finalRect.width < 4 && finalRect.height < 4;
-                    if (clickAction) {
-                        handleSingleSelection(event.getPoint(), event.isControlDown());
-                    } else {
-                        handleBoxSelection(finalRect, event.isControlDown());
-                    }
-
-                    Rectangle dirty = selectionRect == null ? finalRect : union(selectionRect, finalRect);
-                    selectionRect = null;
-                    if (dirty != null) {
-                        repaint(dirty.x - 4, dirty.y - 4, dirty.width + 8, dirty.height + 8);
-                    } else {
-                        repaint();
-                    }
-                    resetDragState();
-                    return;
-                }
-
-                handleEditToolClick(event.getPoint(), event.isControlDown());
-                activeSnapGuide = SnapGuide.none();
-                resetDragState();
+                handleMouseReleased(event);
             }
         };
+    }
 
-        addMouseListener(mouseHandler);
-        addMouseMotionListener(mouseHandler);
-
-        MouseWheelListener wheelHandler = new MouseWheelListener() {
+    private MouseWheelListener createMouseWheelHandler() {
+        return new MouseWheelListener() {
             @Override
             public void mouseWheelMoved(MouseWheelEvent event) {
                 double oldZoom = zoom;
@@ -1145,7 +656,145 @@ public class MapCanvas extends JPanel {
                 fireViewportChanged();
             }
         };
-        addMouseWheelListener(wheelHandler);
+    }
+
+    private void handleMousePressed(MouseEvent event) {
+        requestFocusInWindow();
+        dragStartPoint = event.getPoint();
+        dragCurrentPoint = event.getPoint();
+        activeSnapGuide = SnapGuide.none();
+        draggingPreviewWorld = null;
+
+        if (SwingUtilities.isMiddleMouseButton(event) || SwingUtilities.isRightMouseButton(event)) {
+            dragMode = DragMode.PAN;
+            return;
+        }
+
+        if (!SwingUtilities.isLeftMouseButton(event)) {
+            return;
+        }
+
+        if (spacePanMode) {
+            dragMode = DragMode.PAN;
+            return;
+        }
+
+        if (editToolMode == EditToolMode.MOVE_VERTEX) {
+            Vertex vertex = findVertexAt(event.getPoint());
+            if (vertex != null) {
+                draggingVertexId = vertex.getId();
+                draggingVertexMoved = false;
+                draggingPreviewWorld = new Point2D.Double(vertex.getX(), vertex.getY());
+                dragMode = DragMode.MOVE_VERTEX;
+                return;
+            }
+        }
+
+        if (editToolMode == EditToolMode.SELECT) {
+            dragMode = DragMode.BOX_SELECT;
+            selectionRect = new Rectangle(event.getX(), event.getY(), 0, 0);
+            repaint(selectionRect);
+            return;
+        }
+
+        dragMode = DragMode.NONE;
+    }
+
+    private void handleMouseDragged(MouseEvent event) {
+        if (dragStartPoint == null) {
+            return;
+        }
+        if (dragMode == DragMode.PAN) {
+            handlePanDrag(event);
+            return;
+        }
+        if (dragMode == DragMode.BOX_SELECT) {
+            handleBoxSelectDrag(event);
+            return;
+        }
+        if (dragMode == DragMode.MOVE_VERTEX) {
+            handleMoveVertexDrag(event);
+        }
+    }
+
+    private void handleMouseReleased(MouseEvent event) {
+        if (dragMode == DragMode.PAN) {
+            activeSnapGuide = SnapGuide.none();
+            resetDragState();
+            return;
+        }
+
+        if (!SwingUtilities.isLeftMouseButton(event)) {
+            resetDragState();
+            return;
+        }
+
+        if (dragMode == DragMode.MOVE_VERTEX) {
+            if (draggingVertexId != null && (draggingVertexMoved || event.getPoint().distance(dragStartPoint) > 2.0)) {
+                Point2D.Double target = draggingPreviewWorld != null ? draggingPreviewWorld : toWorld(event.getPoint());
+                Point2D.Double snappedTarget = snapToWorld(target, draggingVertexId, false);
+                fireMoveVertexRequested(draggingVertexId, snappedTarget.x, snappedTarget.y);
+            } else if (draggingVertexId != null) {
+                handleSingleSelection(event.getPoint(), event.isControlDown());
+            }
+            activeSnapGuide = SnapGuide.none();
+            resetDragState();
+            return;
+        }
+
+        if (editToolMode == EditToolMode.SELECT && dragMode == DragMode.BOX_SELECT) {
+            Rectangle finalRect = selectionRect == null ? createRect(dragStartPoint, event.getPoint()) : selectionRect;
+            if (finalRect.width < 4 && finalRect.height < 4) {
+                handleSingleSelection(event.getPoint(), event.isControlDown());
+            } else {
+                handleBoxSelection(finalRect, event.isControlDown());
+            }
+
+            Rectangle dirty = selectionRect == null ? finalRect : union(selectionRect, finalRect);
+            selectionRect = null;
+            if (dirty != null) {
+                repaint(dirty.x - 4, dirty.y - 4, dirty.width + 8, dirty.height + 8);
+            } else {
+                repaint();
+            }
+            resetDragState();
+            return;
+        }
+
+        handleEditToolClick(event.getPoint(), event.isControlDown());
+        activeSnapGuide = SnapGuide.none();
+        resetDragState();
+    }
+
+    private void handlePanDrag(MouseEvent event) {
+        int dx = event.getX() - dragCurrentPoint.x;
+        int dy = event.getY() - dragCurrentPoint.y;
+        panX += dx;
+        panY += dy;
+        clampPanOffsets();
+        dragCurrentPoint = event.getPoint();
+        invalidateScene(true, true);
+        repaint();
+        fireViewportChanged();
+    }
+
+    private void handleBoxSelectDrag(MouseEvent event) {
+        Rectangle oldRect = selectionRect == null ? null : new Rectangle(selectionRect);
+        selectionRect = createRect(dragStartPoint, event.getPoint());
+        dragCurrentPoint = event.getPoint();
+        repaintUnion(oldRect, selectionRect);
+    }
+
+    private void handleMoveVertexDrag(MouseEvent event) {
+        if (draggingVertexId == null) {
+            return;
+        }
+        if (!draggingVertexMoved) {
+            draggingVertexMoved = event.getPoint().distance(dragStartPoint) > 2.0;
+        }
+        Point2D.Double world = toWorld(event.getPoint());
+        draggingPreviewWorld = snapToWorld(world, draggingVertexId, true);
+        repaint();
     }
 
     private void handleEditToolClick(Point point, boolean appendSelection) {
@@ -1384,93 +1033,26 @@ public class MapCanvas extends JPanel {
         return new Point2D.Double(worldX, worldY);
     }
 
-    private SnapResult applySnap(Point2D.Double world, String movingVertexId, boolean previewOnly) {
-        if (world == null) {
-            return new SnapResult(0, 0);
-        }
-        double snappedX = world.x;
-        double snappedY = world.y;
-        boolean verticalGuide = false;
-        boolean horizontalGuide = false;
-        double guideX = snappedX;
-        double guideY = snappedY;
-
-        Point2D.Double projectedPointer = project(world);
-        double gridX = Math.rint(world.x / GRID_SNAP_SIZE) * GRID_SNAP_SIZE;
-        double gridY = Math.rint(world.y / GRID_SNAP_SIZE) * GRID_SNAP_SIZE;
-        if (projectedPointer != null) {
-            Point2D.Double projectedGrid = project(new Point2D.Double(gridX, gridY));
-            if (projectedGrid != null && projectedPointer.distance(projectedGrid) <= GRID_SNAP_PIXELS) {
-                snappedX = gridX;
-                snappedY = gridY;
-                guideX = snappedX;
-                guideY = snappedY;
-            }
-        }
-
-        double nearestVertexScreen = Double.MAX_VALUE;
-        Vertex nearestVertex = null;
-        if (projectedPointer != null && !vertices.isEmpty() && !isLayerLocked(Layer.VERTEX)) {
-            for (Vertex vertex : vertices) {
-                if (vertex == null) {
-                    continue;
-                }
-                if (movingVertexId != null && movingVertexId.equals(vertex.getId())) {
-                    continue;
-                }
-                Point2D.Double projectedVertex = project(vertex);
-                if (projectedVertex == null) {
-                    continue;
-                }
-                double distance = projectedPointer.distance(projectedVertex);
-                if (distance < nearestVertexScreen) {
-                    nearestVertexScreen = distance;
-                    nearestVertex = vertex;
-                }
-            }
-        }
-        if (nearestVertex != null && nearestVertexScreen <= SNAP_VERTEX_PIXELS) {
-            snappedX = nearestVertex.getX();
-            snappedY = nearestVertex.getY();
-            verticalGuide = true;
-            horizontalGuide = true;
-            guideX = snappedX;
-            guideY = snappedY;
-        } else {
-            updateProjection();
-            double unitToScreen = Math.max(baseScale * zoom, 0.001);
-            double axisThreshold = AXIS_ALIGN_PIXELS / unitToScreen;
-            double minXGap = Double.MAX_VALUE;
-            double minYGap = Double.MAX_VALUE;
-            for (Vertex vertex : vertices) {
-                if (movingVertexId != null && movingVertexId.equals(vertex.getId())) {
-                    continue;
-                }
-                double dx = Math.abs(snappedX - vertex.getX());
-                if (dx <= axisThreshold && dx < minXGap) {
-                    minXGap = dx;
-                    guideX = vertex.getX();
-                    verticalGuide = true;
-                }
-                double dy = Math.abs(snappedY - vertex.getY());
-                if (dy <= axisThreshold && dy < minYGap) {
-                    minYGap = dy;
-                    guideY = vertex.getY();
-                    horizontalGuide = true;
-                }
-            }
-            if (verticalGuide) {
-                snappedX = guideX;
-            }
-            if (horizontalGuide) {
-                snappedY = guideY;
-            }
-        }
-
-        activeSnapGuide = (previewOnly && (verticalGuide || horizontalGuide))
-                ? new SnapGuide(verticalGuide, horizontalGuide, guideX, guideY)
+    private Point2D.Double snapToWorld(Point2D.Double world, String movingVertexId, boolean previewOnly) {
+        updateProjection();
+        double unitToScreen = Math.max(baseScale * zoom, 0.001);
+        double axisThresholdWorld = AXIS_ALIGN_PIXELS / unitToScreen;
+        MapCanvasSnapEngine.Outcome outcome = MapCanvasSnapEngine.apply(
+                world,
+                movingVertexId,
+                vertices,
+                isLayerLocked(Layer.VERTEX),
+                GRID_SNAP_SIZE,
+                GRID_SNAP_PIXELS,
+                SNAP_VERTEX_PIXELS,
+                axisThresholdWorld,
+                this::project,
+                this::project
+        );
+        activeSnapGuide = (previewOnly && outcome.hasGuide())
+                ? new SnapGuide(outcome.verticalGuide, outcome.horizontalGuide, outcome.guideX, outcome.guideY)
                 : SnapGuide.none();
-        return new SnapResult(snappedX, snappedY);
+        return new Point2D.Double(outcome.x, outcome.y);
     }
 
     private void centerOnSegment(int segmentIndex) {
@@ -1698,38 +1280,6 @@ public class MapCanvas extends JPanel {
         return value;
     }
 
-    private static int floorMod(int value, int divisor) {
-        int mod = value % divisor;
-        return mod < 0 ? mod + divisor : mod;
-    }
-
-    private static double chooseNiceDistance(double rawDistance) {
-        if (rawDistance <= 0 || Double.isInfinite(rawDistance) || Double.isNaN(rawDistance)) {
-            return 10.0;
-        }
-        double exponent = Math.floor(Math.log10(rawDistance));
-        double base = Math.pow(10.0, exponent);
-        double normalized = rawDistance / base;
-        double nice;
-        if (normalized <= 1.0) {
-            nice = 1.0;
-        } else if (normalized <= 2.0) {
-            nice = 2.0;
-        } else if (normalized <= 5.0) {
-            nice = 5.0;
-        } else {
-            nice = 10.0;
-        }
-        return nice * base;
-    }
-
-    private static String formatDistanceLabel(double meters) {
-        if (meters >= 1000) {
-            return String.format("%.1f km", meters / 1000.0);
-        }
-        return String.format("%.0f m", meters);
-    }
-
     private static Color withOpacity(Color color, float opacity) {
         if (color == null) {
             return null;
@@ -1781,28 +1331,6 @@ public class MapCanvas extends JPanel {
             return new Color(68, 189, 98);
         }
         return new Color(115, 125, 142);
-    }
-
-    private static final class LabelMetrics {
-        private final int width;
-        private final int height;
-        private final int ascent;
-
-        private LabelMetrics(int width, int height, int ascent) {
-            this.width = width;
-            this.height = height;
-            this.ascent = ascent;
-        }
-    }
-
-    private static final class SnapResult {
-        private final double x;
-        private final double y;
-
-        private SnapResult(double x, double y) {
-            this.x = x;
-            this.y = y;
-        }
     }
 
     private static final class SnapGuide {

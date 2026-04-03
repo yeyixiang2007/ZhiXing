@@ -35,7 +35,6 @@ import com.zhixing.navigation.gui.workbench.MapCanvas;
 import com.zhixing.navigation.gui.workbench.MapWorkbenchView;
 import com.zhixing.navigation.gui.workbench.WorkbenchFeedback;
 import com.zhixing.navigation.gui.workbench.command.CommandBus;
-import com.zhixing.navigation.gui.workbench.command.UndoableCommand;
 import com.zhixing.navigation.gui.workbench.state.MapViewState;
 import com.zhixing.navigation.infrastructure.persistence.PersistenceService;
 
@@ -62,8 +61,6 @@ import javax.swing.SwingUtilities;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.imageio.ImageIO;
 import java.awt.BorderLayout;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -113,6 +110,7 @@ public class MainView extends JFrame {
     private final List<JButton> adminOverlayButtons;
     private final CommandBus<Admin> adminCommandBus;
     private final MapViewState viewState;
+    private final MainViewAdminEditCoordinator adminEditCoordinator;
 
     private PathQueryView pathQueryView;
     private PlaceBrowseView placeBrowseView;
@@ -132,7 +130,6 @@ public class MainView extends JFrame {
     private JPanel mapOverlayToolbar;
     private JButton undoButton;
     private JButton redoButton;
-    private int autoVertexCounter;
 
     public MainView(CampusGraph graph, PersistenceService persistenceService) {
         AuthService authService = new AuthService(persistenceService);
@@ -155,7 +152,17 @@ public class MainView extends JFrame {
         this.adminCommandBus = new CommandBus<Admin>();
         this.viewState = new MapViewState();
         this.activeRoute = AppRoute.USER_MODE;
-        this.autoVertexCounter = 1;
+        this.adminEditCoordinator = new MainViewAdminEditCoordinator(
+                mapController,
+                feedback,
+                viewState,
+                adminCommandBus,
+                () -> currentAdmin,
+                this::ensureAdminLoggedIn,
+                () -> activeRoute,
+                this::refreshAllData,
+                this::refreshUndoRedoButtons
+        );
 
         UiStyles.installDefaults();
         initializeFrame();
@@ -572,6 +579,15 @@ public class MainView extends JFrame {
     }
 
     private void wireViewEvents() {
+        bindPathQueryEvents();
+        bindMapCanvasEvents();
+        bindVertexManageEvents();
+        bindRoadManageEvents();
+        bindForbiddenManageEvents();
+        bindOverviewAndLayerEvents();
+    }
+
+    private void bindPathQueryEvents() {
         pathQueryView.setListener(new PathQueryView.Listener() {
             @Override
             public void onQuery(String startId, String endId) {
@@ -604,6 +620,9 @@ public class MainView extends JFrame {
             }
         });
         placeBrowseView.setListener(this::refreshPlaceData);
+    }
+
+    private void bindMapCanvasEvents() {
         mapCanvas.setListener(new MapCanvas.Listener() {
             @Override
             public void onSelectionChanged(List<String> selectedVertexIds, String selectedEdgeKey) {
@@ -678,7 +697,9 @@ public class MainView extends JFrame {
                 feedback.setStatus("画布提示: " + message);
             }
         });
+    }
 
+    private void bindVertexManageEvents() {
         vertexManageView.setListener(new VertexManageView.Listener() {
             @Override
             public void onAdd(VertexManageView.VertexFormData formData) {
@@ -695,7 +716,9 @@ public class MainView extends JFrame {
                 handleDeleteVertexById(id);
             }
         });
+    }
 
+    private void bindRoadManageEvents() {
         roadManageView.setListener(new RoadManageView.Listener() {
             @Override
             public void onAdd(RoadManageView.RoadFormData data) {
@@ -712,7 +735,9 @@ public class MainView extends JFrame {
                 handleDeleteRoadFromForm(data);
             }
         });
+    }
 
+    private void bindForbiddenManageEvents() {
         forbiddenManageView.setListener(new ForbiddenManageView.Listener() {
             @Override
             public void onToggleForbidden(RoadOption roadOption, boolean forbidden) {
@@ -728,7 +753,9 @@ public class MainView extends JFrame {
                 refreshForbiddenData();
             }
         });
+    }
 
+    private void bindOverviewAndLayerEvents() {
         overviewDashboardView.setListener(this::refreshOverviewData);
         layerPanel.setListener(message -> {
             feedback.info(message);
@@ -809,7 +836,7 @@ public class MainView extends JFrame {
         String mapSelectedEdgeKey = viewState.getSelectedEdgeKey();
         List<String> mapSelectedVertexIds = viewState.getSelectedVertexIds();
         if (mapSelectedEdgeKey != null) {
-            Edge selectedEdge = findRoadByEdgeKey(mapSelectedEdgeKey);
+            Edge selectedEdge = adminEditCoordinator.findRoadByEdgeKey(mapSelectedEdgeKey);
             if (selectedEdge != null) {
                 roadManageView.fillFromEdge(selectedEdge);
                 showAdminSection(ADMIN_SECTION_ROAD);
@@ -818,7 +845,7 @@ public class MainView extends JFrame {
             }
         }
         if (mapSelectedVertexIds.size() == 1) {
-            Vertex selectedVertex = findVertexById(mapSelectedVertexIds.get(0));
+            Vertex selectedVertex = adminEditCoordinator.findVertexById(mapSelectedVertexIds.get(0));
             if (selectedVertex != null) {
                 vertexManageView.fillFromVertex(selectedVertex);
                 showAdminSection(ADMIN_SECTION_VERTEX);
@@ -834,617 +861,92 @@ public class MainView extends JFrame {
     }
 
     private void handleAddVertexFromForm(VertexManageView.VertexFormData formData) {
-        final String id = safeTrim(formData.getId());
-        final String name = safeTrim(formData.getName());
-        final PlaceType type = formData.getType();
-        final double x = parseDouble(formData.getX(), "X坐标");
-        final double y = parseDouble(formData.getY(), "Y坐标");
-        final String description = safeTrim(formData.getDescription());
-
-        executeAdminEditCommand("正在新增地点...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.addVertex(admin, id, name, type, x, y, description);
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.deleteVertex(admin, id);
-            }
-
-            @Override
-            public String successMessage() {
-                return "地点新增成功。";
-            }
-        });
+        adminEditCoordinator.handleAddVertexFromForm(formData);
     }
 
     private void handleUpdateVertexFromForm(VertexManageView.VertexFormData formData) {
-        final String targetId = safeTrim(formData.getId());
-        final String originalId = isBlank(formData.getOriginalId()) ? targetId : safeTrim(formData.getOriginalId());
-        final Vertex before = requireVertex(originalId);
-        final String name = safeTrim(formData.getName());
-        final PlaceType type = formData.getType();
-        final double x = parseDouble(formData.getX(), "X坐标");
-        final double y = parseDouble(formData.getY(), "Y坐标");
-        final String description = safeTrim(formData.getDescription());
-
-        if (originalId.equals(targetId)) {
-            executeAdminEditCommand("正在修改地点...", new AdminEditCommand() {
-                @Override
-                public void execute(Admin admin) {
-                    mapController.updateVertex(admin, targetId, name, type, x, y, description);
-                }
-
-                @Override
-                public void undo(Admin admin) {
-                    mapController.updateVertex(admin, before.getId(), before.getName(), before.getType(), before.getX(), before.getY(), before.getDescription());
-                }
-
-                @Override
-                public String successMessage() {
-                    return "地点修改成功。";
-                }
-            });
-            return;
-        }
-
-        final List<Edge> relatedRoads = listRelatedCanonicalRoads(Collections.singleton(originalId));
-        executeAdminEditCommand("正在修改地点...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.addVertex(admin, targetId, name, type, x, y, description);
-                for (Edge edge : relatedRoads) {
-                    String fromId = edge.getFromVertex().getId().equals(originalId) ? targetId : edge.getFromVertex().getId();
-                    String toId = edge.getToVertex().getId().equals(originalId) ? targetId : edge.getToVertex().getId();
-                    mapController.addRoad(admin, fromId, toId, edge.getWeight(), edge.isOneWay(), edge.isForbidden(), edge.getRoadType());
-                }
-                mapController.deleteVertex(admin, originalId);
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.addVertex(admin, before.getId(), before.getName(), before.getType(), before.getX(), before.getY(), before.getDescription());
-                restoreRoads(admin, relatedRoads);
-                mapController.deleteVertex(admin, targetId);
-            }
-
-            @Override
-            public String successMessage() {
-                return "地点修改成功（已更新ID）。";
-            }
-        });
+        adminEditCoordinator.handleUpdateVertexFromForm(formData);
     }
 
     private void handleDeleteVertexById(String id) {
-        String vertexId = safeTrim(id);
-        if (isBlank(vertexId)) {
-            feedback.showErrorDialog("参数缺失", "请先输入或选择要删除的地点ID。");
-            return;
-        }
-        if (!feedback.confirm("确认删除", "确定删除地点 " + vertexId + " 吗？")) {
-            return;
-        }
-        final Vertex snapshot = requireVertex(vertexId);
-        final List<Edge> relatedRoads = listRelatedCanonicalRoads(Collections.singleton(snapshot.getId()));
-        executeAdminEditCommand("正在删除地点...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.deleteVertex(admin, snapshot.getId());
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.addVertex(admin, snapshot.getId(), snapshot.getName(), snapshot.getType(), snapshot.getX(), snapshot.getY(), snapshot.getDescription());
-                restoreRoads(admin, relatedRoads);
-            }
-
-            @Override
-            public String successMessage() {
-                return "地点删除成功。";
-            }
-        });
+        adminEditCoordinator.handleDeleteVertexById(id);
     }
 
     private void handleAddRoadFromForm(RoadManageView.RoadFormData data) {
-        final String fromId = safeTrim(data.getFromId());
-        final String toId = safeTrim(data.getToId());
-        final double weight = parsePositiveDouble(data.getWeight(), "道路距离");
-        final boolean oneWay = data.isOneWay();
-        final boolean forbidden = data.isForbidden();
-        final RoadType roadType = data.getRoadType();
-
-        executeAdminEditCommand("正在新增道路...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.addRoad(admin, fromId, toId, weight, oneWay, forbidden, roadType);
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.deleteRoad(admin, fromId, toId);
-            }
-
-            @Override
-            public String successMessage() {
-                return "道路新增成功。";
-            }
-        });
+        adminEditCoordinator.handleAddRoadFromForm(data);
     }
 
     private void handleUpdateRoadFromForm(RoadManageView.RoadFormData data) {
-        final String fromId = safeTrim(data.getFromId());
-        final String toId = safeTrim(data.getToId());
-        final Edge before = requireRoad(fromId, toId);
-        final double weight = parsePositiveDouble(data.getWeight(), "道路距离");
-        final boolean oneWay = data.isOneWay();
-        final boolean forbidden = data.isForbidden();
-        final RoadType roadType = data.getRoadType();
-
-        executeAdminEditCommand("正在修改道路...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.updateRoad(admin, fromId, toId, weight, oneWay, forbidden, roadType);
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.updateRoad(admin, before.getFromVertex().getId(), before.getToVertex().getId(), before.getWeight(), before.isOneWay(), before.isForbidden(), before.getRoadType());
-            }
-
-            @Override
-            public String successMessage() {
-                return "道路修改成功。";
-            }
-        });
+        adminEditCoordinator.handleUpdateRoadFromForm(data);
     }
 
     private void handleDeleteRoadFromForm(RoadManageView.RoadFormData data) {
-        String fromId = safeTrim(data.getFromId());
-        String toId = safeTrim(data.getToId());
-        if (isBlank(fromId) || isBlank(toId)) {
-            feedback.showErrorDialog("参数缺失", "请先选择要删除的道路起点和终点。");
-            return;
-        }
-        if (!feedback.confirm("确认删除", "确定删除道路 " + fromId + " -> " + toId + " 吗？")) {
-            return;
-        }
-        final Edge snapshot = requireRoad(fromId, toId);
-        executeAdminEditCommand("正在删除道路...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.deleteRoad(admin, snapshot.getFromVertex().getId(), snapshot.getToVertex().getId());
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.addRoad(admin, snapshot.getFromVertex().getId(), snapshot.getToVertex().getId(), snapshot.getWeight(), snapshot.isOneWay(), snapshot.isForbidden(), snapshot.getRoadType());
-            }
-
-            @Override
-            public String successMessage() {
-                return "道路删除成功。";
-            }
-        });
+        adminEditCoordinator.handleDeleteRoadFromForm(data);
     }
 
     private void handleSetRoadForbidden(String fromId, String toId, boolean forbidden) {
-        final Edge before = requireRoad(fromId, toId);
-        final boolean target = forbidden;
-        executeAdminEditCommand(target ? "正在设置禁行..." : "正在解除禁行...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.setRoadForbidden(admin, before.getFromVertex().getId(), before.getToVertex().getId(), target);
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.setRoadForbidden(admin, before.getFromVertex().getId(), before.getToVertex().getId(), before.isForbidden());
-            }
-
-            @Override
-            public String successMessage() {
-                return target ? "设置禁行成功。" : "解除禁行成功。";
-            }
-        });
+        adminEditCoordinator.handleSetRoadForbidden(fromId, toId, forbidden);
     }
 
     private void handleMapAddVertex(double x, double y) {
-        if (!isAdminEditingAvailable()) {
-            return;
-        }
-        final String id = generateAutoVertexId();
-        final String name = "地点-" + id;
-        executeAdminEditCommand("正在地图新增点位...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.addVertex(admin, id, name, PlaceType.OTHER, x, y, "地图编辑新增");
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.deleteVertex(admin, id);
-            }
-
-            @Override
-            public String successMessage() {
-                return "地图新增点位成功。";
-            }
-        });
+        adminEditCoordinator.handleMapAddVertex(x, y);
     }
 
     private void handleMapConnectVertices(String fromId, String toId) {
-        if (!isAdminEditingAvailable()) {
-            return;
-        }
-        if (isBlank(fromId) || isBlank(toId) || fromId.equals(toId)) {
-            return;
-        }
-        Vertex fromVertex = requireVertex(fromId);
-        Vertex toVertex = requireVertex(toId);
-        final double distance = Math.max(1.0, Math.hypot(fromVertex.getX() - toVertex.getX(), fromVertex.getY() - toVertex.getY()));
-        executeAdminEditCommand("正在地图连线...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.addRoad(admin, fromId, toId, distance, false, false, RoadType.PATH);
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.deleteRoad(admin, fromId, toId);
-            }
-
-            @Override
-            public String successMessage() {
-                return "地图连线成功。";
-            }
-        });
+        adminEditCoordinator.handleMapConnectVertices(fromId, toId);
     }
 
     private void handleMapMoveVertex(String vertexId, double x, double y) {
-        if (!isAdminEditingAvailable()) {
-            return;
-        }
-        final Vertex before = requireVertex(vertexId);
-        executeAdminEditCommand("正在移动点位...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.updateVertex(admin, before.getId(), before.getName(), before.getType(), x, y, before.getDescription());
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.updateVertex(admin, before.getId(), before.getName(), before.getType(), before.getX(), before.getY(), before.getDescription());
-            }
-
-            @Override
-            public String successMessage() {
-                return "点位移动成功。";
-            }
-        });
+        adminEditCoordinator.handleMapMoveVertex(vertexId, x, y);
     }
 
     private void handleMapDeleteVertex(String vertexId) {
-        if (!isAdminEditingAvailable()) {
-            return;
-        }
-        handleDeleteVertexById(vertexId);
+        adminEditCoordinator.handleMapDeleteVertex(vertexId);
     }
 
     private void handleMapDeleteEdge(String edgeKey) {
-        if (!isAdminEditingAvailable()) {
-            return;
-        }
-        Edge edge = findRoadByEdgeKey(edgeKey);
-        if (edge == null) {
-            feedback.showErrorDialog("删除失败", "未找到要删除的道路对象。");
-            return;
-        }
-        if (!feedback.confirm("确认删除", "确定删除道路 " + edge.getFromVertex().getId() + " -> " + edge.getToVertex().getId() + " 吗？")) {
-            return;
-        }
-        final Edge snapshot = edge;
-        executeAdminEditCommand("正在删除道路...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                mapController.deleteRoad(admin, snapshot.getFromVertex().getId(), snapshot.getToVertex().getId());
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                mapController.addRoad(admin, snapshot.getFromVertex().getId(), snapshot.getToVertex().getId(), snapshot.getWeight(), snapshot.isOneWay(), snapshot.isForbidden(), snapshot.getRoadType());
-            }
-
-            @Override
-            public String successMessage() {
-                return "地图删除道路成功。";
-            }
-        });
+        adminEditCoordinator.handleMapDeleteEdge(edgeKey);
     }
 
     private void handleBatchDeleteSelectedVertices() {
-        if (!isAdminEditingAvailable()) {
-            return;
-        }
-        List<String> mapSelectedVertexIds = viewState.getSelectedVertexIds();
-        if (mapSelectedVertexIds.isEmpty()) {
-            feedback.showErrorDialog("批量删除", "请先在地图中框选要删除的点位。");
-            return;
-        }
-        if (!feedback.confirm("批量删除确认", "确定删除选中的 " + mapSelectedVertexIds.size() + " 个点位吗？")) {
-            return;
-        }
-        final List<String> selectedIds = new ArrayList<String>(mapSelectedVertexIds);
-        final Set<String> idSet = new HashSet<String>(selectedIds);
-        final List<Vertex> vertexSnapshots = new ArrayList<Vertex>();
-        for (String id : selectedIds) {
-            Vertex vertex = findVertexById(id);
-            if (vertex != null) {
-                vertexSnapshots.add(vertex);
-            }
-        }
-        final List<Edge> relatedRoads = listRelatedCanonicalRoads(idSet);
-        executeAdminEditCommand("正在批量删除点位...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                for (String id : selectedIds) {
-                    mapController.deleteVertex(admin, id);
-                }
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                for (Vertex vertex : vertexSnapshots) {
-                    mapController.addVertex(admin, vertex.getId(), vertex.getName(), vertex.getType(), vertex.getX(), vertex.getY(), vertex.getDescription());
-                }
-                restoreRoads(admin, relatedRoads);
-            }
-
-            @Override
-            public String successMessage() {
-                return "批量删除成功。";
-            }
-        });
+        adminEditCoordinator.handleBatchDeleteSelectedVertices();
     }
 
     private void handleBatchForbiddenBySelection(boolean forbidden) {
-        if (!isAdminEditingAvailable()) {
-            return;
-        }
-        List<String> mapSelectedVertexIds = viewState.getSelectedVertexIds();
-        if (mapSelectedVertexIds.size() < 2) {
-            feedback.showErrorDialog("批量禁行", "请先框选至少两个点位。");
-            return;
-        }
-        final Set<String> selected = new HashSet<String>(mapSelectedVertexIds);
-        final List<Edge> candidates = new ArrayList<Edge>();
-        for (Edge edge : listCanonicalRoads()) {
-            String fromId = edge.getFromVertex().getId();
-            String toId = edge.getToVertex().getId();
-            if (selected.contains(fromId) && selected.contains(toId) && edge.isForbidden() != forbidden) {
-                candidates.add(edge);
-            }
-        }
-        if (candidates.isEmpty()) {
-            feedback.info("没有需要变更禁行状态的道路。");
-            return;
-        }
-
-        final List<Edge> snapshots = new ArrayList<Edge>(candidates);
-        executeAdminEditCommand(forbidden ? "正在批量设置禁行..." : "正在批量解除禁行...", new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                for (Edge edge : snapshots) {
-                    mapController.setRoadForbidden(admin, edge.getFromVertex().getId(), edge.getToVertex().getId(), forbidden);
-                }
-            }
-
-            @Override
-            public void undo(Admin admin) {
-                for (Edge edge : snapshots) {
-                    mapController.setRoadForbidden(admin, edge.getFromVertex().getId(), edge.getToVertex().getId(), edge.isForbidden());
-                }
-            }
-
-            @Override
-            public String successMessage() {
-                return forbidden ? "批量禁行成功。" : "批量解禁成功。";
-            }
-        });
+        adminEditCoordinator.handleBatchForbiddenBySelection(forbidden);
     }
 
     private void handleQuickToggleSelectedEdgeForbidden() {
-        if (!isAdminEditingAvailable()) {
-            return;
-        }
-        String mapSelectedEdgeKey = viewState.getSelectedEdgeKey();
-        if (mapSelectedEdgeKey == null) {
-            feedback.showErrorDialog("禁行切换", "请先在地图上选中一条道路。");
-            return;
-        }
-        Edge edge = findRoadByEdgeKey(mapSelectedEdgeKey);
-        if (edge == null) {
-            feedback.showErrorDialog("禁行切换", "未找到选中的道路。");
-            return;
-        }
-        handleSetRoadForbidden(edge.getFromVertex().getId(), edge.getToVertex().getId(), !edge.isForbidden());
-    }
-
-    private void executeAdminEditCommand(String loadingText, AdminEditCommand command) {
-        if (!ensureAdminLoggedIn()) {
-            return;
-        }
-        Admin operator = currentAdmin;
-        try {
-            feedback.showLoading(loadingText);
-            adminCommandBus.execute(command, operator);
-            refreshAllData();
-            feedback.success(command.successMessage());
-            feedback.setStatus("管理员模式: " + command.successMessage());
-        } catch (RuntimeException ex) {
-            feedback.showOperationError("操作失败", ex);
-            feedback.setStatus("管理员模式: 操作失败");
-        } finally {
-            feedback.hideLoading();
-            refreshUndoRedoButtons();
-        }
+        adminEditCoordinator.handleQuickToggleSelectedEdgeForbidden();
     }
 
     private void undoLastEdit() {
-        if (!adminCommandBus.canUndo()) {
-            feedback.info("没有可撤销的编辑。");
-            return;
-        }
-        if (!ensureAdminLoggedIn()) {
-            return;
-        }
-        Admin operator = currentAdmin;
-        try {
-            feedback.showLoading("正在撤销上一步编辑...");
-            adminCommandBus.undo(operator);
-            refreshAllData();
-            feedback.info("撤销成功。");
-            feedback.setStatus("管理员模式: 已撤销");
-        } catch (RuntimeException ex) {
-            feedback.showOperationError("撤销失败", ex);
-            feedback.setStatus("管理员模式: 撤销失败");
-        } finally {
-            feedback.hideLoading();
-            refreshUndoRedoButtons();
-        }
+        adminEditCoordinator.undoLastEdit();
     }
 
     private void redoLastEdit() {
-        if (!adminCommandBus.canRedo()) {
-            feedback.info("没有可重做的编辑。");
-            return;
-        }
-        if (!ensureAdminLoggedIn()) {
-            return;
-        }
-        Admin operator = currentAdmin;
-        try {
-            feedback.showLoading("正在重做上一步编辑...");
-            adminCommandBus.redo(operator);
-            refreshAllData();
-            feedback.info("重做成功。");
-            feedback.setStatus("管理员模式: 已重做");
-        } catch (RuntimeException ex) {
-            feedback.showOperationError("重做失败", ex);
-            feedback.setStatus("管理员模式: 重做失败");
-        } finally {
-            feedback.hideLoading();
-            refreshUndoRedoButtons();
-        }
+        adminEditCoordinator.redoLastEdit();
     }
 
     private void refreshUndoRedoButtons() {
         if (undoButton != null) {
-            undoButton.setEnabled(currentAdmin != null && adminCommandBus.canUndo());
+            undoButton.setEnabled(currentAdmin != null && adminEditCoordinator.canUndo());
         }
         if (redoButton != null) {
-            redoButton.setEnabled(currentAdmin != null && adminCommandBus.canRedo());
+            redoButton.setEnabled(currentAdmin != null && adminEditCoordinator.canRedo());
         }
     }
 
     private boolean isAdminEditingAvailable() {
-        return activeRoute == AppRoute.ADMIN_MODE && currentAdmin != null;
-    }
-
-    private String generateAutoVertexId() {
-        Set<String> used = new HashSet<String>();
-        for (Vertex vertex : mapController.listVertices()) {
-            used.add(vertex.getId());
-        }
-        while (true) {
-            String candidate = "NODE_" + autoVertexCounter++;
-            if (!used.contains(candidate)) {
-                return candidate;
-            }
-        }
-    }
-
-    private Vertex findVertexById(String vertexId) {
-        if (isBlank(vertexId)) {
-            return null;
-        }
-        for (Vertex vertex : mapController.listVertices()) {
-            if (vertex.getId().equals(vertexId)) {
-                return vertex;
-            }
-        }
-        return null;
+        return adminEditCoordinator.isAdminEditingAvailable();
     }
 
     private Vertex requireVertex(String vertexId) {
-        Vertex vertex = findVertexById(vertexId);
-        if (vertex == null) {
-            throw new IllegalArgumentException("未找到点位: " + vertexId);
+        Vertex vertex = adminEditCoordinator.findVertexById(vertexId);
+        if (vertex != null) {
+            return vertex;
         }
-        return vertex;
-    }
-
-    private Edge requireRoad(String fromId, String toId) {
-        for (Edge edge : mapController.listRoads()) {
-            if (edge.getFromVertex().getId().equals(fromId) && edge.getToVertex().getId().equals(toId)) {
-                return edge;
-            }
-        }
-        throw new IllegalArgumentException("未找到道路: " + fromId + " -> " + toId);
-    }
-
-    private Edge findRoadByEdgeKey(String edgeKey) {
-        if (isBlank(edgeKey)) {
-            return null;
-        }
-        for (Edge edge : listCanonicalRoads()) {
-            if (toRoadKey(edge).equals(edgeKey)) {
-                return edge;
-            }
-        }
-        return null;
-    }
-
-    private List<Edge> listCanonicalRoads() {
-        List<Edge> roads = mapController.listRoads();
-        Map<String, Edge> deduped = new LinkedHashMap<String, Edge>();
-        for (Edge edge : roads) {
-            String key = toRoadKey(edge);
-            if (!deduped.containsKey(key)) {
-                deduped.put(key, edge);
-            }
-        }
-        return new ArrayList<Edge>(deduped.values());
-    }
-
-    private List<Edge> listRelatedCanonicalRoads(Set<String> vertexIds) {
-        List<Edge> roads = new ArrayList<Edge>();
-        for (Edge edge : listCanonicalRoads()) {
-            String fromId = edge.getFromVertex().getId();
-            String toId = edge.getToVertex().getId();
-            if (vertexIds.contains(fromId) || vertexIds.contains(toId)) {
-                roads.add(edge);
-            }
-        }
-        return roads;
-    }
-
-    private void restoreRoads(Admin admin, List<Edge> roads) {
-        for (Edge edge : roads) {
-            mapController.addRoad(admin, edge.getFromVertex().getId(), edge.getToVertex().getId(), edge.getWeight(), edge.isOneWay(), edge.isForbidden(), edge.getRoadType());
-        }
-    }
-
-    private static String toRoadKey(Edge edge) {
-        String from = edge.getFromVertex().getId();
-        String to = edge.getToVertex().getId();
-        if (edge.isOneWay()) {
-            return "ONE:" + from + "->" + to;
-        }
-        if (from.compareTo(to) <= 0) {
-            return "TWO:" + from + "<->" + to;
-        }
-        return "TWO:" + to + "<->" + from;
+        throw new IllegalArgumentException("未找到点位: " + vertexId);
     }
 
     private static String safeTrim(String value) {
@@ -1538,24 +1040,6 @@ public class MainView extends JFrame {
     private void refreshOverviewData() {
         OverviewData overview = mapController.loadOverview();
         overviewDashboardView.setOverviewData(overview);
-    }
-
-    private void runAdminMutation(String loadingText, String successText, Runnable operation) {
-        if (!ensureAdminLoggedIn()) {
-            return;
-        }
-        try {
-            feedback.showLoading(loadingText);
-            operation.run();
-            refreshAllData();
-            feedback.success(successText);
-            feedback.setStatus("管理员模式: " + successText);
-        } catch (RuntimeException ex) {
-            feedback.showOperationError("操作失败", ex);
-            feedback.setStatus("管理员模式: 操作失败");
-        } finally {
-            feedback.hideLoading();
-        }
     }
 
     private void showWorkbenchToolsMenu(JButton anchorButton) {
@@ -1882,10 +1366,10 @@ public class MainView extends JFrame {
             button.setEnabled(enabled);
         }
         if (undoButton != null) {
-            undoButton.setEnabled(enabled && adminCommandBus.canUndo());
+            undoButton.setEnabled(enabled && adminEditCoordinator.canUndo());
         }
         if (redoButton != null) {
-            redoButton.setEnabled(enabled && adminCommandBus.canRedo());
+            redoButton.setEnabled(enabled && adminEditCoordinator.canRedo());
         }
         if (activeRoute == AppRoute.ADMIN_MODE) {
             mapWorkbenchView.setMapHint(resolveMapHint(AppRoute.ADMIN_MODE));
@@ -1916,9 +1400,6 @@ public class MainView extends JFrame {
                 button.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 10));
             }
         }
-    }
-
-    private interface AdminEditCommand extends UndoableCommand<Admin> {
     }
 
     private static void addFormRow(JPanel panel, GridBagConstraints gbc, int row, String label, java.awt.Component component) {
