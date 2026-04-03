@@ -7,13 +7,19 @@ import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
+import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 
 public class MapWorkbenchView extends JPanel {
+    private static final int RIGHT_PANEL_TARGET_WIDTH = 420;
+    private static final int RIGHT_PANEL_MIN_WIDTH = 340;
+
     private final JLabel routeTitleLabel;
     private final JPanel mapSurfacePanel;
     private final JPanel mapContentHolder;
@@ -21,6 +27,7 @@ public class MapWorkbenchView extends JPanel {
     private final CardLayout sidebarLayout;
     private final JPanel sidebarPanel;
     private final JLabel statusLabel;
+    private final JSplitPane workbenchSplitPane;
 
     public MapWorkbenchView() {
         setLayout(new BorderLayout(10, 10));
@@ -58,14 +65,21 @@ public class MapWorkbenchView extends JPanel {
 
         JPanel sideRegion = new JPanel(new BorderLayout());
         sideRegion.setBackground(UiStyles.PAGE_BACKGROUND);
-        sideRegion.setPreferredSize(new Dimension(470, 0));
+        sideRegion.setPreferredSize(new Dimension(430, 0));
         sideRegion.add(sidebarPanel, BorderLayout.CENTER);
 
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, mapRegion, sideRegion);
-        splitPane.setResizeWeight(0.65);
-        splitPane.setContinuousLayout(true);
-        splitPane.setBorder(BorderFactory.createEmptyBorder());
-        splitPane.setDividerSize(8);
+        workbenchSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, mapRegion, sideRegion);
+        workbenchSplitPane.setResizeWeight(1.0);
+        workbenchSplitPane.setContinuousLayout(true);
+        workbenchSplitPane.setBorder(BorderFactory.createEmptyBorder());
+        workbenchSplitPane.setDividerSize(8);
+        workbenchSplitPane.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                adjustWorkbenchDivider();
+            }
+        });
+        SwingUtilities.invokeLater(this::adjustWorkbenchDivider);
 
         statusLabel = new JLabel("状态: GUI 已就绪");
         statusLabel.setFont(UiStyles.CAPTION_FONT);
@@ -78,8 +92,18 @@ public class MapWorkbenchView extends JPanel {
         statusLabel.setBackground(Color.WHITE);
 
         add(routeTitleLabel, BorderLayout.NORTH);
-        add(splitPane, BorderLayout.CENTER);
+        add(workbenchSplitPane, BorderLayout.CENTER);
         add(statusLabel, BorderLayout.SOUTH);
+    }
+
+    private void adjustWorkbenchDivider() {
+        int totalWidth = workbenchSplitPane.getWidth();
+        if (totalWidth <= 0) {
+            return;
+        }
+        int rightWidth = Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(RIGHT_PANEL_TARGET_WIDTH, totalWidth / 3));
+        int dividerLocation = totalWidth - rightWidth - workbenchSplitPane.getDividerSize();
+        workbenchSplitPane.setDividerLocation(Math.max(220, dividerLocation));
     }
 
     public void registerRoutePanel(AppRoute route, JPanel panel) {

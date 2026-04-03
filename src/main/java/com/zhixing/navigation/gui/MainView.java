@@ -49,6 +49,8 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.JLayeredPane;
+import javax.swing.JFileChooser;
 import javax.swing.JSplitPane;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
@@ -56,17 +58,28 @@ import javax.swing.Action;
 import javax.swing.JComponent;
 import javax.swing.AbstractAction;
 import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.imageio.ImageIO;
 import java.awt.BorderLayout;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.event.ActionEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -97,6 +110,7 @@ public class MainView extends JFrame {
     private final Map<AppRoute, JButton> navButtons;
     private final Map<String, JButton> adminSectionButtons;
     private final Map<EditToolMode, JButton> adminToolButtons;
+    private final List<JButton> adminOverlayButtons;
     private final CommandBus<Admin> adminCommandBus;
     private final MapViewState viewState;
 
@@ -114,6 +128,8 @@ public class MainView extends JFrame {
     private JPanel adminCardPanel;
     private CardLayout adminWorkspaceLayout;
     private JPanel adminWorkspacePanel;
+    private JLayeredPane mapLayeredPane;
+    private JPanel mapOverlayToolbar;
     private JButton undoButton;
     private JButton redoButton;
     private int autoVertexCounter;
@@ -135,6 +151,7 @@ public class MainView extends JFrame {
         this.navButtons = new EnumMap<AppRoute, JButton>(AppRoute.class);
         this.adminSectionButtons = new LinkedHashMap<String, JButton>();
         this.adminToolButtons = new EnumMap<EditToolMode, JButton>(EditToolMode.class);
+        this.adminOverlayButtons = new ArrayList<JButton>();
         this.adminCommandBus = new CommandBus<Admin>();
         this.viewState = new MapViewState();
         this.activeRoute = AppRoute.USER_MODE;
@@ -229,10 +246,46 @@ public class MainView extends JFrame {
         mapWorkbenchView.registerRoutePanel(AppRoute.USER_MODE, createUserModeView());
         mapWorkbenchView.registerRoutePanel(AppRoute.ADMIN_MODE, createAdminModeView());
         mapWorkbenchView.registerRoutePanel(AppRoute.SYSTEM_SETTINGS, createSystemSettingsView());
-        mapWorkbenchView.setMapContent(mapCanvas);
+        mapWorkbenchView.setMapContent(createMapOverlayContent());
 
         center.add(mapWorkbenchView, BorderLayout.CENTER);
         return center;
+    }
+
+    private JLayeredPane createMapOverlayContent() {
+        mapLayeredPane = new JLayeredPane();
+        mapLayeredPane.setOpaque(true);
+        mapLayeredPane.setLayout(null);
+        mapLayeredPane.add(mapCanvas, JLayeredPane.DEFAULT_LAYER);
+
+        mapOverlayToolbar = createMapOverlayToolbar();
+        mapLayeredPane.add(mapOverlayToolbar, JLayeredPane.PALETTE_LAYER);
+        mapLayeredPane.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                layoutMapOverlayComponents();
+            }
+        });
+        SwingUtilities.invokeLater(this::layoutMapOverlayComponents);
+        return mapLayeredPane;
+    }
+
+    private void layoutMapOverlayComponents() {
+        if (mapLayeredPane == null) {
+            return;
+        }
+        int width = Math.max(0, mapLayeredPane.getWidth());
+        int height = Math.max(0, mapLayeredPane.getHeight());
+        mapCanvas.setBounds(0, 0, width, height);
+        if (mapOverlayToolbar == null) {
+            return;
+        }
+        Dimension preferred = mapOverlayToolbar.getPreferredSize();
+        int x = Math.max(8, width - preferred.width - 12);
+        int y = 12;
+        mapOverlayToolbar.setBounds(x, y, preferred.width, preferred.height);
+        mapOverlayToolbar.revalidate();
+        mapOverlayToolbar.repaint();
     }
 
     private JPanel createUserModeView() {
@@ -322,7 +375,6 @@ public class MainView extends JFrame {
         JPanel workspaceHeader = new JPanel(new BorderLayout(0, 8));
         workspaceHeader.setBackground(UiStyles.PAGE_BACKGROUND);
         workspaceHeader.add(sectionBar, BorderLayout.NORTH);
-        workspaceHeader.add(createAdminEditToolbar(), BorderLayout.SOUTH);
 
         adminWorkspaceLayout = new CardLayout();
         adminWorkspacePanel = new JPanel(adminWorkspaceLayout);
@@ -341,47 +393,81 @@ public class MainView extends JFrame {
         return panel;
     }
 
-    private JPanel createAdminEditToolbar() {
-        JPanel editBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        editBar.setBackground(UiStyles.PANEL_BACKGROUND);
-        editBar.setBorder(UiStyles.sectionBorder("地图编辑工具"));
+    private JPanel createMapOverlayToolbar() {
+        JPanel palette = new JPanel();
+        palette.setLayout(new BoxLayout(palette, BoxLayout.Y_AXIS));
+        palette.setOpaque(true);
+        palette.setBackground(new Color(255, 255, 255, 235));
+        palette.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(188, 202, 223)),
+                BorderFactory.createEmptyBorder(8, 6, 8, 6)
+        ));
 
-        editBar.add(createEditToolButton(EditToolMode.SELECT, "选择"));
-        editBar.add(createEditToolButton(EditToolMode.ADD_VERTEX, "添加点"));
-        editBar.add(createEditToolButton(EditToolMode.ADD_EDGE, "连线"));
-        editBar.add(createEditToolButton(EditToolMode.MOVE_VERTEX, "移动点"));
-        editBar.add(createEditToolButton(EditToolMode.DELETE_OBJECT, "删除对象"));
+        palette.add(createPaletteModeButton(EditToolMode.SELECT, "⌖", "选择工具"));
+        palette.add(Box.createVerticalStrut(6));
+        palette.add(createPaletteModeButton(EditToolMode.ADD_VERTEX, "+", "添加点位"));
+        palette.add(Box.createVerticalStrut(6));
+        palette.add(createPaletteModeButton(EditToolMode.ADD_EDGE, "∕", "连线工具"));
+        palette.add(Box.createVerticalStrut(6));
+        palette.add(createPaletteModeButton(EditToolMode.MOVE_VERTEX, "✥", "移动点位"));
+        palette.add(Box.createVerticalStrut(6));
+        palette.add(createPaletteModeButton(EditToolMode.DELETE_OBJECT, "✕", "删除对象"));
 
-        undoButton = UiStyles.secondaryButton("撤销");
-        undoButton.addActionListener(e -> undoLastEdit());
-        redoButton = UiStyles.secondaryButton("重做");
-        redoButton.addActionListener(e -> redoLastEdit());
+        palette.add(Box.createVerticalStrut(10));
+        undoButton = createPaletteActionButton("↶", "撤销", this::undoLastEdit);
+        redoButton = createPaletteActionButton("↷", "重做", this::redoLastEdit);
+        palette.add(undoButton);
+        palette.add(Box.createVerticalStrut(6));
+        palette.add(redoButton);
 
-        JButton batchDeleteButton = UiStyles.secondaryButton("批量删除");
-        batchDeleteButton.addActionListener(e -> handleBatchDeleteSelectedVertices());
-        JButton batchForbidButton = UiStyles.secondaryButton("批量禁行");
-        batchForbidButton.addActionListener(e -> handleBatchForbiddenBySelection(true));
-        JButton batchEnableButton = UiStyles.secondaryButton("批量解禁");
-        batchEnableButton.addActionListener(e -> handleBatchForbiddenBySelection(false));
-        JButton quickToggleButton = UiStyles.secondaryButton("禁行切换");
-        quickToggleButton.addActionListener(e -> handleQuickToggleSelectedEdgeForbidden());
-        JButton toolsMenuButton = UiStyles.secondaryButton("工具菜单");
+        palette.add(Box.createVerticalStrut(10));
+        palette.add(createPaletteActionButton("⌦", "批量删除", this::handleBatchDeleteSelectedVertices));
+        palette.add(Box.createVerticalStrut(6));
+        palette.add(createPaletteActionButton("⊘", "批量禁行", () -> handleBatchForbiddenBySelection(true)));
+        palette.add(Box.createVerticalStrut(6));
+        palette.add(createPaletteActionButton("✓", "批量解禁", () -> handleBatchForbiddenBySelection(false)));
+        palette.add(Box.createVerticalStrut(6));
+        palette.add(createPaletteActionButton("⇄", "禁行切换", this::handleQuickToggleSelectedEdgeForbidden));
+        palette.add(Box.createVerticalStrut(6));
+        JButton toolsMenuButton = createPaletteButton("☰", "工具菜单");
         toolsMenuButton.addActionListener(e -> showWorkbenchToolsMenu(toolsMenuButton));
-
-        editBar.add(undoButton);
-        editBar.add(redoButton);
-        editBar.add(batchDeleteButton);
-        editBar.add(batchForbidButton);
-        editBar.add(batchEnableButton);
-        editBar.add(quickToggleButton);
-        editBar.add(toolsMenuButton);
-        return editBar;
+        adminOverlayButtons.add(toolsMenuButton);
+        palette.add(toolsMenuButton);
+        updateAdminToolButtonStyle();
+        refreshUndoRedoButtons();
+        return palette;
     }
 
-    private JButton createEditToolButton(EditToolMode mode, String text) {
-        JButton button = UiStyles.secondaryButton(text);
+    private JButton createPaletteModeButton(EditToolMode mode, String glyph, String tooltip) {
+        JButton button = createPaletteButton(glyph, tooltip);
         button.addActionListener(e -> setAdminEditMode(mode));
         adminToolButtons.put(mode, button);
+        adminOverlayButtons.add(button);
+        return button;
+    }
+
+    private JButton createPaletteActionButton(String glyph, String tooltip, Runnable action) {
+        JButton button = createPaletteButton(glyph, tooltip);
+        button.addActionListener(e -> action.run());
+        adminOverlayButtons.add(button);
+        return button;
+    }
+
+    private JButton createPaletteButton(String glyph, String tooltip) {
+        JButton button = new JButton(glyph);
+        button.setToolTipText(tooltip);
+        button.setFocusPainted(false);
+        button.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 16));
+        button.setHorizontalAlignment(SwingConstants.CENTER);
+        button.setPreferredSize(new Dimension(36, 34));
+        button.setMaximumSize(new Dimension(36, 34));
+        button.setMinimumSize(new Dimension(36, 34));
+        button.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(UiStyles.BORDER),
+                BorderFactory.createEmptyBorder(2, 2, 2, 2)
+        ));
+        button.setBackground(Color.WHITE);
+        button.setForeground(UiStyles.TEXT_PRIMARY);
         return button;
     }
 
@@ -446,7 +532,7 @@ public class MainView extends JFrame {
             button.setForeground(UiStyles.PRIMARY);
             button.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(new Color(170, 201, 243)),
-                    BorderFactory.createEmptyBorder(8, 14, 8, 14)
+                    BorderFactory.createEmptyBorder(2, 2, 2, 2)
             ));
             return;
         }
@@ -454,7 +540,7 @@ public class MainView extends JFrame {
         button.setForeground(UiStyles.TEXT_PRIMARY);
         button.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(UiStyles.BORDER),
-                BorderFactory.createEmptyBorder(8, 14, 8, 14)
+                BorderFactory.createEmptyBorder(2, 2, 2, 2)
         ));
     }
 
@@ -774,28 +860,58 @@ public class MainView extends JFrame {
     }
 
     private void handleUpdateVertexFromForm(VertexManageView.VertexFormData formData) {
-        final String id = safeTrim(formData.getId());
-        final Vertex before = requireVertex(id);
+        final String targetId = safeTrim(formData.getId());
+        final String originalId = isBlank(formData.getOriginalId()) ? targetId : safeTrim(formData.getOriginalId());
+        final Vertex before = requireVertex(originalId);
         final String name = safeTrim(formData.getName());
         final PlaceType type = formData.getType();
         final double x = parseDouble(formData.getX(), "X坐标");
         final double y = parseDouble(formData.getY(), "Y坐标");
         final String description = safeTrim(formData.getDescription());
 
+        if (originalId.equals(targetId)) {
+            executeAdminEditCommand("正在修改地点...", new AdminEditCommand() {
+                @Override
+                public void execute(Admin admin) {
+                    mapController.updateVertex(admin, targetId, name, type, x, y, description);
+                }
+
+                @Override
+                public void undo(Admin admin) {
+                    mapController.updateVertex(admin, before.getId(), before.getName(), before.getType(), before.getX(), before.getY(), before.getDescription());
+                }
+
+                @Override
+                public String successMessage() {
+                    return "地点修改成功。";
+                }
+            });
+            return;
+        }
+
+        final List<Edge> relatedRoads = listRelatedCanonicalRoads(Collections.singleton(originalId));
         executeAdminEditCommand("正在修改地点...", new AdminEditCommand() {
             @Override
             public void execute(Admin admin) {
-                mapController.updateVertex(admin, id, name, type, x, y, description);
+                mapController.addVertex(admin, targetId, name, type, x, y, description);
+                for (Edge edge : relatedRoads) {
+                    String fromId = edge.getFromVertex().getId().equals(originalId) ? targetId : edge.getFromVertex().getId();
+                    String toId = edge.getToVertex().getId().equals(originalId) ? targetId : edge.getToVertex().getId();
+                    mapController.addRoad(admin, fromId, toId, edge.getWeight(), edge.isOneWay(), edge.isForbidden(), edge.getRoadType());
+                }
+                mapController.deleteVertex(admin, originalId);
             }
 
             @Override
             public void undo(Admin admin) {
-                mapController.updateVertex(admin, before.getId(), before.getName(), before.getType(), before.getX(), before.getY(), before.getDescription());
+                mapController.addVertex(admin, before.getId(), before.getName(), before.getType(), before.getX(), before.getY(), before.getDescription());
+                restoreRoads(admin, relatedRoads);
+                mapController.deleteVertex(admin, targetId);
             }
 
             @Override
             public String successMessage() {
-                return "地点修改成功。";
+                return "地点修改成功（已更新ID）。";
             }
         });
     }
@@ -1447,13 +1563,169 @@ public class MainView extends JFrame {
             return;
         }
         JPopupMenu menu = new JPopupMenu();
+        JMenuItem importReferenceImageItem = new JMenuItem("导入参考图...");
+        importReferenceImageItem.addActionListener(e -> promptImportReferenceImage());
+        JMenuItem clearReferenceImageItem = new JMenuItem("清除参考图");
+        clearReferenceImageItem.addActionListener(e -> handleClearReferenceImage());
+        JMenuItem setReferenceScaleItem = new JMenuItem("设置参考图比例...");
+        setReferenceScaleItem.addActionListener(e -> promptSetReferenceImageScale());
+        JMenuItem setMapScaleItem = new JMenuItem("设置比例尺...");
+        setMapScaleItem.addActionListener(e -> promptSetMetersPerWorldUnit());
+        JMenuItem calibrateScaleItem = new JMenuItem("比例尺校准...");
+        calibrateScaleItem.addActionListener(e -> promptCalibrateMetersPerWorldUnit());
         JMenuItem backupItem = new JMenuItem("执行备份...");
         backupItem.addActionListener(e -> promptBackupFromWorkbenchTools());
         JMenuItem restoreItem = new JMenuItem("执行恢复...");
         restoreItem.addActionListener(e -> promptRestoreFromWorkbenchTools());
+        menu.add(importReferenceImageItem);
+        menu.add(clearReferenceImageItem);
+        menu.add(setReferenceScaleItem);
+        menu.add(setMapScaleItem);
+        menu.add(calibrateScaleItem);
+        menu.addSeparator();
         menu.add(backupItem);
         menu.add(restoreItem);
         menu.show(anchorButton, 0, anchorButton.getHeight());
+    }
+
+    private void promptImportReferenceImage() {
+        if (!ensureAdminLoggedIn()) {
+            return;
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("选择参考图");
+        chooser.setFileFilter(new FileNameExtensionFilter("图片文件", "png", "jpg", "jpeg", "bmp", "gif"));
+        int result = chooser.showOpenDialog(this);
+        if (result != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File file = chooser.getSelectedFile();
+        if (file == null) {
+            return;
+        }
+        try {
+            BufferedImage image = ImageIO.read(file);
+            if (image == null) {
+                feedback.showErrorDialog("导入失败", "文件不是有效图片。");
+                return;
+            }
+            mapCanvas.setReferenceImage(image);
+            feedback.success("参考图导入成功。");
+            feedback.setStatus("工作台工具: 已导入参考图");
+        } catch (IOException ex) {
+            feedback.showOperationError("导入失败", ex);
+            feedback.setStatus("工作台工具: 参考图导入失败");
+        }
+    }
+
+    private void handleClearReferenceImage() {
+        if (!ensureAdminLoggedIn()) {
+            return;
+        }
+        if (!mapCanvas.hasReferenceImage()) {
+            feedback.info("当前没有已导入的参考图。");
+            return;
+        }
+        mapCanvas.clearReferenceImage();
+        feedback.info("已清除参考图。");
+        feedback.setStatus("工作台工具: 已清除参考图");
+    }
+
+    private void promptSetReferenceImageScale() {
+        if (!ensureAdminLoggedIn()) {
+            return;
+        }
+        String defaultValue = String.format("%.2f", mapCanvas.getReferenceImageScale());
+        String input = JOptionPane.showInputDialog(this, "请输入参考图比例（如 1.0）：", defaultValue);
+        if (input == null) {
+            return;
+        }
+        try {
+            double scale = parsePositiveDouble(input, "参考图比例");
+            mapCanvas.setReferenceImageScale(scale);
+            feedback.success("参考图比例已更新。");
+            feedback.setStatus("工作台工具: 参考图比例=" + String.format("%.2f", scale));
+        } catch (RuntimeException ex) {
+            feedback.showOperationError("设置失败", ex);
+            feedback.setStatus("工作台工具: 参考图比例设置失败");
+        }
+    }
+
+    private void promptSetMetersPerWorldUnit() {
+        if (!ensureAdminLoggedIn()) {
+            return;
+        }
+        String defaultValue = String.format("%.2f", mapCanvas.getMetersPerWorldUnit());
+        String input = JOptionPane.showInputDialog(this, "请输入比例尺（每 1 坐标单位=多少米）：", defaultValue);
+        if (input == null) {
+            return;
+        }
+        try {
+            double metersPerUnit = parsePositiveDouble(input, "比例尺");
+            mapCanvas.setMetersPerWorldUnit(metersPerUnit);
+            feedback.success("比例尺已更新。");
+            feedback.setStatus("工作台工具: 比例尺已更新");
+        } catch (RuntimeException ex) {
+            feedback.showOperationError("设置失败", ex);
+            feedback.setStatus("工作台工具: 比例尺设置失败");
+        }
+    }
+
+    private void promptCalibrateMetersPerWorldUnit() {
+        if (!ensureAdminLoggedIn()) {
+            return;
+        }
+        List<String> selectedVertexIds = viewState.getSelectedVertexIds();
+        String defaultFromId = selectedVertexIds.size() >= 1 ? selectedVertexIds.get(0) : "";
+        String defaultToId = selectedVertexIds.size() >= 2 ? selectedVertexIds.get(1) : "";
+
+        JTextField fromIdField = new JTextField(defaultFromId, 12);
+        JTextField toIdField = new JTextField(defaultToId, 12);
+        JTextField metersField = new JTextField("100", 12);
+        Object[] message = new Object[]{
+                "参考点A（节点ID）", fromIdField,
+                "参考点B（节点ID）", toIdField,
+                "A-B真实距离（米）", metersField
+        };
+        int result = JOptionPane.showConfirmDialog(
+                this,
+                message,
+                "比例尺校准",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE
+        );
+        if (result != JOptionPane.OK_OPTION) {
+            return;
+        }
+        try {
+            String fromId = safeTrim(fromIdField.getText());
+            String toId = safeTrim(toIdField.getText());
+            if (isBlank(fromId) || isBlank(toId)) {
+                throw new IllegalArgumentException("请先输入两个节点ID。");
+            }
+            if (fromId.equals(toId)) {
+                throw new IllegalArgumentException("两个节点ID不能相同。");
+            }
+            double realMeters = parsePositiveDouble(metersField.getText(), "真实距离");
+            Vertex from = requireVertex(fromId);
+            Vertex to = requireVertex(toId);
+            double worldDistance = Math.hypot(to.getX() - from.getX(), to.getY() - from.getY());
+            if (worldDistance <= 0) {
+                throw new IllegalArgumentException("两点在地图上的距离为0，无法校准比例尺。");
+            }
+            double metersPerUnit = realMeters / worldDistance;
+            mapCanvas.setMetersPerWorldUnit(metersPerUnit);
+            feedback.success("比例尺校准完成。");
+            feedback.setStatus(String.format(
+                    "工作台工具: 比例尺=%.4f 米/单位（参考 %s-%s）",
+                    metersPerUnit,
+                    fromId,
+                    toId
+            ));
+        } catch (RuntimeException ex) {
+            feedback.showOperationError("校准失败", ex);
+            feedback.setStatus("工作台工具: 比例尺校准失败");
+        }
     }
 
     private void promptBackupFromWorkbenchTools() {
@@ -1521,6 +1793,7 @@ public class MainView extends JFrame {
         feedback.setStatus("当前页面: " + route.getTitle());
         updateNavState(route);
         updateAdminAccessUi();
+        updateMapOverlayToolbarVisibility();
     }
 
     private String resolveMapHint(AppRoute route) {
@@ -1605,6 +1878,9 @@ public class MainView extends JFrame {
         for (JButton button : adminToolButtons.values()) {
             button.setEnabled(enabled);
         }
+        for (JButton button : adminOverlayButtons) {
+            button.setEnabled(enabled);
+        }
         if (undoButton != null) {
             undoButton.setEnabled(enabled && adminCommandBus.canUndo());
         }
@@ -1614,6 +1890,14 @@ public class MainView extends JFrame {
         if (activeRoute == AppRoute.ADMIN_MODE) {
             mapWorkbenchView.setMapHint(resolveMapHint(AppRoute.ADMIN_MODE));
         }
+        updateMapOverlayToolbarVisibility();
+    }
+
+    private void updateMapOverlayToolbarVisibility() {
+        if (mapOverlayToolbar == null) {
+            return;
+        }
+        mapOverlayToolbar.setVisible(activeRoute == AppRoute.ADMIN_MODE);
     }
 
     private void updateNavState(AppRoute activeRoute) {

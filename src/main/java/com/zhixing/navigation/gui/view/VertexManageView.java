@@ -28,6 +28,7 @@ public class VertexManageView extends JPanel {
     private final JTextField descriptionField;
     private final DefaultTableModel tableModel;
     private final JTable table;
+    private String editingOriginalId;
 
     public VertexManageView() {
         setLayout(new BorderLayout(10, 10));
@@ -49,6 +50,7 @@ public class VertexManageView extends JPanel {
         xField = UiStyles.formField(16);
         yField = UiStyles.formField(16);
         descriptionField = UiStyles.formField(16);
+        editingOriginalId = null;
 
         ViewUtils.addFormRow(form, gbc, 0, "地点ID", idField);
         ViewUtils.addFormRow(form, gbc, 1, "地点名称", nameField);
@@ -121,6 +123,7 @@ public class VertexManageView extends JPanel {
         xField.setText("");
         yField.setText("");
         descriptionField.setText("");
+        editingOriginalId = null;
     }
 
     public void fillFromVertex(Vertex vertex) {
@@ -133,10 +136,12 @@ public class VertexManageView extends JPanel {
         xField.setText(String.valueOf(vertex.getX()));
         yField.setText(String.valueOf(vertex.getY()));
         descriptionField.setText(vertex.getDescription());
+        editingOriginalId = vertex.getId();
     }
 
     private VertexFormData buildFormData() {
         return new VertexFormData(
+                safeTrim(editingOriginalId),
                 safeTrim(idField.getText()),
                 safeTrim(nameField.getText()),
                 (PlaceType) typeCombo.getSelectedItem(),
@@ -160,6 +165,7 @@ public class VertexManageView extends JPanel {
         xField.setText(String.valueOf(tableModel.getValueAt(row, 3)));
         yField.setText(String.valueOf(tableModel.getValueAt(row, 4)));
         descriptionField.setText(String.valueOf(tableModel.getValueAt(row, 5)));
+        editingOriginalId = safeTrim(idField.getText());
     }
 
     private static String safeTrim(String text) {
@@ -181,6 +187,7 @@ public class VertexManageView extends JPanel {
     }
 
     public static final class VertexFormData {
+        private final String originalId;
         private final String id;
         private final String name;
         private final PlaceType type;
@@ -188,13 +195,18 @@ public class VertexManageView extends JPanel {
         private final String y;
         private final String description;
 
-        public VertexFormData(String id, String name, PlaceType type, String x, String y, String description) {
+        public VertexFormData(String originalId, String id, String name, PlaceType type, String x, String y, String description) {
+            this.originalId = originalId;
             this.id = id;
             this.name = name;
             this.type = type;
             this.x = x;
             this.y = y;
             this.description = description;
+        }
+
+        public String getOriginalId() {
+            return originalId;
         }
 
         public String getId() {

@@ -4,6 +4,8 @@ import com.zhixing.navigation.gui.model.VertexOption;
 import com.zhixing.navigation.gui.styles.UiStyles;
 
 import javax.swing.JButton;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -70,12 +72,23 @@ public class PathQueryView extends JPanel {
         formPanel.add(endCombo, gbc);
         gbc.weightx = 0;
 
-        JPanel actionBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        JPanel actionBar = new JPanel();
         actionBar.setOpaque(false);
-        actionBar.add(pickStartButton);
-        actionBar.add(pickEndButton);
-        actionBar.add(queryButton);
-        actionBar.add(switchButton);
+        actionBar.setLayout(new BoxLayout(actionBar, BoxLayout.Y_AXIS));
+
+        JPanel actionRow1 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        actionRow1.setOpaque(false);
+        actionRow1.add(pickStartButton);
+        actionRow1.add(pickEndButton);
+
+        JPanel actionRow2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        actionRow2.setOpaque(false);
+        actionRow2.add(queryButton);
+        actionRow2.add(switchButton);
+
+        actionBar.add(actionRow1);
+        actionBar.add(Box.createVerticalStrut(6));
+        actionBar.add(actionRow2);
         gbc.gridx = 1;
         gbc.gridy = 2;
         formPanel.add(actionBar, gbc);
