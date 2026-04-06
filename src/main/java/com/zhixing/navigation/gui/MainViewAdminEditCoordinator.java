@@ -26,6 +26,8 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 final class MainViewAdminEditCoordinator {
+    private static final String AUTO_VERTEX_ID_PREFIX = "SCU-JA-OT-OT-";
+
     private final MapController mapController;
     private final WorkbenchFeedback feedback;
     private final MapViewState viewState;
@@ -584,7 +586,7 @@ final class MainViewAdminEditCoordinator {
             used.add(vertex.getId());
         }
         while (true) {
-            String candidate = "NODE_" + autoVertexCounter++;
+            String candidate = AUTO_VERTEX_ID_PREFIX + String.format("%03d", autoVertexCounter++);
             if (!used.contains(candidate)) {
                 return candidate;
             }
