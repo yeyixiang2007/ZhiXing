@@ -65,6 +65,7 @@ public class ForbiddenManageView extends JPanel {
 
         JScrollPane tablePane = new JScrollPane(table);
         tablePane.setBorder(UiStyles.sectionBorder("道路禁行状态"));
+        UiStyles.applyTableScrollPaneStyle(tablePane);
 
         add(toolBar, BorderLayout.NORTH);
         add(tablePane, BorderLayout.CENTER);

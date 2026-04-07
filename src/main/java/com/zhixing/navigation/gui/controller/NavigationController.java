@@ -14,26 +14,26 @@ import java.util.Objects;
 
 public class NavigationController {
     private static final RouteRenderStyle CURRENT_ROUTE_STYLE = new RouteRenderStyle(
-            new Color(255, 170, 0),
+            new Color(236, 152, 48),
             5.2f,
             false,
             true,
             true,
-            new Color(39, 174, 96),
-            new Color(231, 76, 60),
-            new Color(255, 255, 255, 230),
-            new Color(255, 153, 0)
+            new Color(34, 156, 108),
+            new Color(219, 78, 74),
+            new Color(247, 250, 253),
+            new Color(236, 152, 48)
     );
     private static final RouteRenderStyle TRACE_ROUTE_STYLE = new RouteRenderStyle(
-            new Color(80, 130, 220, 110),
+            new Color(96, 126, 168, 120),
             3.2f,
             true,
             false,
             false,
-            new Color(39, 174, 96),
-            new Color(231, 76, 60),
-            new Color(255, 255, 255, 230),
-            new Color(255, 153, 0)
+            new Color(34, 156, 108),
+            new Color(219, 78, 74),
+            new Color(247, 250, 253),
+            new Color(236, 152, 48)
     );
 
     private final CampusGraph graph;

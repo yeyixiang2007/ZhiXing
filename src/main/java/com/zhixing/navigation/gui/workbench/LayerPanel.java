@@ -22,6 +22,9 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -42,20 +45,26 @@ public class LayerPanel extends JPanel {
         this.lockChecks = new EnumMap<MapCanvas.Layer, JCheckBox>(MapCanvas.Layer.class);
         this.opacityLabels = new EnumMap<MapCanvas.Layer, JLabel>(MapCanvas.Layer.class);
 
-        setLayout(new BorderLayout(8, 8));
-        setBackground(new Color(242, 245, 249));
-        setBorder(UiStyles.sectionBorder("地图图层"));
+        setLayout(new BorderLayout(0, 12));
+        setOpaque(false);
+        setBackground(UiStyles.SURFACE);
+        setBorder(BorderFactory.createEmptyBorder());
 
         JPanel stack = new JPanel();
         stack.setOpaque(false);
         stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
         stack.add(createLayerRow(MapCanvas.Layer.ROAD, "道路层"));
-        stack.add(Box.createVerticalStrut(6));
+        stack.add(Box.createVerticalStrut(8));
         stack.add(createLayerRow(MapCanvas.Layer.FORBIDDEN, "禁行层"));
-        stack.add(Box.createVerticalStrut(6));
+        stack.add(Box.createVerticalStrut(8));
         stack.add(createLayerRow(MapCanvas.Layer.VERTEX, "点位层"));
-        stack.add(Box.createVerticalStrut(6));
+        stack.add(Box.createVerticalStrut(8));
         stack.add(createLayerRow(MapCanvas.Layer.LABEL, "标签层"));
+
+        JPanel layerShell = UiStyles.softCardPanel(new BorderLayout(0, 10));
+        layerShell.setBackground(UiStyles.SURFACE);
+        layerShell.add(createSectionHeader("图层状态", "开关、锁定与透明度统一放在这里。"), BorderLayout.NORTH);
+        layerShell.add(stack, BorderLayout.CENTER);
 
         orderModel = new DefaultListModel<MapCanvas.Layer>();
         for (MapCanvas.Layer layer : canvas.getRenderOrder()) {
@@ -70,34 +79,48 @@ public class LayerPanel extends JPanel {
         orderList.setCellRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                Component comp = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                JLabel comp = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof MapCanvas.Layer) {
-                    setText(layerText((MapCanvas.Layer) value));
+                    comp.setText(layerText((MapCanvas.Layer) value));
                 }
+                comp.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(isSelected ? UiStyles.BRAND_500 : UiStyles.BORDER),
+                        BorderFactory.createEmptyBorder(8, 10, 8, 10)
+                ));
+                comp.setBackground(isSelected ? UiStyles.PRIMARY_SOFT : UiStyles.SURFACE);
+                comp.setForeground(isSelected ? UiStyles.PRIMARY : UiStyles.TEXT_PRIMARY);
                 return comp;
             }
         });
 
-        JPanel orderPanel = new JPanel(new BorderLayout(6, 6));
-        orderPanel.setOpaque(false);
+        JPanel orderPanel = UiStyles.softCardPanel(new BorderLayout(0, 10));
+        orderPanel.setBackground(UiStyles.SURFACE);
+        orderPanel.add(createSectionHeader("渲染顺序", "从上到下调整各层绘制优先级。"), BorderLayout.NORTH);
         JScrollPane orderScroll = new JScrollPane(orderList);
-        orderScroll.setPreferredSize(new Dimension(190, 88));
+        orderScroll.setBorder(BorderFactory.createLineBorder(UiStyles.BORDER));
+        orderScroll.setPreferredSize(new Dimension(220, 88));
         orderPanel.add(orderScroll, BorderLayout.CENTER);
 
         JPanel orderButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         orderButtons.setOpaque(false);
         JButton upButton = UiStyles.secondaryButton("上移");
+        upButton.setPreferredSize(new Dimension(0, 36));
+        upButton.setMinimumSize(new Dimension(86, 36));
         upButton.addActionListener(e -> moveSelected(-1));
         JButton downButton = UiStyles.secondaryButton("下移");
+        downButton.setPreferredSize(new Dimension(0, 36));
+        downButton.setMinimumSize(new Dimension(86, 36));
         downButton.addActionListener(e -> moveSelected(1));
         orderButtons.add(upButton);
         orderButtons.add(downButton);
         orderPanel.add(orderButtons, BorderLayout.SOUTH);
 
-        add(stack, BorderLayout.NORTH);
+        add(layerShell, BorderLayout.NORTH);
         add(orderPanel, BorderLayout.CENTER);
 
-        JButton resetViewportButton = UiStyles.secondaryButton("重置视图");
+        JButton resetViewportButton = UiStyles.ghostButton("重置视图");
+        resetViewportButton.setPreferredSize(new Dimension(0, 38));
+        resetViewportButton.setMinimumSize(new Dimension(0, 38));
         resetViewportButton.addActionListener(e -> {
             canvas.resetViewport();
             fireMessage("已重置视图。");
@@ -112,28 +135,25 @@ public class LayerPanel extends JPanel {
     private JComponent createLayerRow(MapCanvas.Layer layer, String title) {
         JPanel row = new JPanel(new BorderLayout(4, 4));
         row.setOpaque(true);
-        row.setBackground(Color.WHITE);
+        row.setBackground(UiStyles.SURFACE_ALT);
         row.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(226, 232, 240)),
-                BorderFactory.createEmptyBorder(6, 6, 6, 6)
+                BorderFactory.createLineBorder(new Color(224, 231, 240)),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
         ));
 
-        JPanel line1 = new JPanel(new BorderLayout(4, 0));
+        JPanel line1 = new JPanel(new BorderLayout(8, 0));
         line1.setOpaque(false);
 
-        JCheckBox visibleCheck = new JCheckBox(title, canvas.isLayerVisible(layer));
-        visibleCheck.setOpaque(false);
-        visibleCheck.setFont(UiStyles.BODY_FONT);
-        visibleCheck.setForeground(UiStyles.TEXT_PRIMARY);
+        JCheckBox visibleCheck = UiStyles.formCheckBox(title);
+        visibleCheck.setSelected(canvas.isLayerVisible(layer));
         visibleCheck.addActionListener(e -> {
             canvas.setLayerVisible(layer, visibleCheck.isSelected());
             fireMessage(title + (visibleCheck.isSelected() ? "已显示" : "已隐藏"));
         });
         layerChecks.put(layer, visibleCheck);
 
-        JCheckBox lockCheck = new JCheckBox("锁定", canvas.isLayerLocked(layer));
-        lockCheck.setOpaque(false);
-        lockCheck.setFont(UiStyles.CAPTION_FONT);
+        JCheckBox lockCheck = UiStyles.formCheckBox("锁定");
+        lockCheck.setSelected(canvas.isLayerLocked(layer));
         lockCheck.setHorizontalAlignment(SwingConstants.RIGHT);
         lockCheck.addActionListener(e -> {
             canvas.setLayerLocked(layer, lockCheck.isSelected());
@@ -141,7 +161,19 @@ public class LayerPanel extends JPanel {
         });
         lockChecks.put(layer, lockCheck);
 
-        line1.add(visibleCheck, BorderLayout.WEST);
+        JPanel titleStack = new JPanel();
+        titleStack.setOpaque(false);
+        titleStack.setLayout(new BoxLayout(titleStack, BoxLayout.Y_AXIS));
+        visibleCheck.setAlignmentX(LEFT_ALIGNMENT);
+        JLabel descLabel = UiStyles.captionLabel(layerDescription(layer));
+        descLabel.setAlignmentX(LEFT_ALIGNMENT);
+        titleStack.add(visibleCheck);
+        titleStack.add(Box.createVerticalStrut(3));
+        titleStack.add(descLabel);
+
+        JPanel layerBadge = createLayerBadge(layer);
+        line1.add(layerBadge, BorderLayout.WEST);
+        line1.add(titleStack, BorderLayout.CENTER);
         line1.add(lockCheck, BorderLayout.EAST);
 
         JPanel line2 = new JPanel(new BorderLayout(4, 0));
@@ -177,6 +209,36 @@ public class LayerPanel extends JPanel {
 
         row.add(body, BorderLayout.CENTER);
         return row;
+    }
+
+    private JComponent createSectionHeader(String title, String description) {
+        JPanel header = new JPanel();
+        header.setOpaque(false);
+        header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
+
+        JLabel titleLabel = new JLabel(title);
+        titleLabel.setFont(UiStyles.SUBTITLE_FONT);
+        titleLabel.setForeground(UiStyles.TEXT_PRIMARY);
+        titleLabel.setAlignmentX(LEFT_ALIGNMENT);
+
+        JLabel descLabel = UiStyles.captionLabel(description);
+        descLabel.setAlignmentX(LEFT_ALIGNMENT);
+
+        header.add(titleLabel);
+        header.add(Box.createVerticalStrut(3));
+        header.add(descLabel);
+        return header;
+    }
+
+    private JPanel createLayerBadge(MapCanvas.Layer layer) {
+        JPanel badge = new JPanel();
+        badge.setPreferredSize(new Dimension(16, 16));
+        badge.setMinimumSize(new Dimension(16, 16));
+        badge.setMaximumSize(new Dimension(16, 16));
+        badge.setOpaque(true);
+        badge.setBackground(layerTint(layer));
+        badge.setBorder(BorderFactory.createLineBorder(new Color(255, 255, 255, 220)));
+        return badge;
     }
 
     private void moveSelected(int direction) {
@@ -228,6 +290,32 @@ public class LayerPanel extends JPanel {
             return "点位层";
         }
         return "标签层";
+    }
+
+    private static String layerDescription(MapCanvas.Layer layer) {
+        if (layer == MapCanvas.Layer.ROAD) {
+            return "基础道路、主干路与单行方向";
+        }
+        if (layer == MapCanvas.Layer.FORBIDDEN) {
+            return "禁行道路和不可通行区域";
+        }
+        if (layer == MapCanvas.Layer.VERTEX) {
+            return "校园地点节点与功能点位";
+        }
+        return "地点名称与重点标签";
+    }
+
+    private static Color layerTint(MapCanvas.Layer layer) {
+        if (layer == MapCanvas.Layer.ROAD) {
+            return new Color(77, 122, 186);
+        }
+        if (layer == MapCanvas.Layer.FORBIDDEN) {
+            return new Color(201, 104, 88);
+        }
+        if (layer == MapCanvas.Layer.VERTEX) {
+            return new Color(77, 169, 130);
+        }
+        return new Color(146, 124, 201);
     }
 
     public interface Listener {

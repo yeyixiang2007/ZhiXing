@@ -15,6 +15,7 @@ import javax.swing.KeyStroke;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Graphics;
+import java.awt.GraphicsConfiguration;
 import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -24,6 +25,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.event.MouseWheelListener;
+import java.awt.geom.AffineTransform;
 import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -122,7 +124,7 @@ public class MapCanvas extends JPanel {
     }
 
     public MapCanvas() {
-        setBackground(new Color(248, 250, 252));
+        setBackground(new Color(243, 247, 251));
         setOpaque(true);
 
         this.vertices = new ArrayList<Vertex>();
@@ -467,12 +469,13 @@ public class MapCanvas extends JPanel {
         super.paintComponent(graphics);
         Graphics2D g2 = (Graphics2D) graphics.create();
         try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            applyQualityRenderingHints(g2);
 
-            ensureSceneCache();
+            double deviceScaleX = resolveDeviceScale(g2, true);
+            double deviceScaleY = resolveDeviceScale(g2, false);
+            ensureSceneCache(deviceScaleX, deviceScaleY);
             if (sceneCache.image() != null) {
-                g2.drawImage(sceneCache.image(), 0, 0, null);
+                g2.drawImage(sceneCache.image(), 0, 0, getWidth(), getHeight(), null);
             }
 
             routeRenderer.draw(
@@ -518,11 +521,11 @@ public class MapCanvas extends JPanel {
         }
     }
 
-    private void ensureSceneCache() {
+    private void ensureSceneCache(double deviceScaleX, double deviceScaleY) {
         int width = Math.max(getWidth(), 1);
         int height = Math.max(getHeight(), 1);
 
-        if (sceneCache.ensureSize(width, height)) {
+        if (sceneCache.ensureSize(width, height, deviceScaleX, deviceScaleY)) {
             projectionDirty = true;
         }
 
@@ -532,8 +535,8 @@ public class MapCanvas extends JPanel {
 
         Graphics2D g2 = sceneCache.image().createGraphics();
         try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            applyQualityRenderingHints(g2);
+            g2.scale(sceneCache.scaleX(), sceneCache.scaleY());
             g2.setColor(getBackground());
             g2.fillRect(0, 0, width, height);
             renderScene(g2);
@@ -541,6 +544,41 @@ public class MapCanvas extends JPanel {
             g2.dispose();
         }
         sceneCache.markClean();
+    }
+
+    private void applyQualityRenderingHints(Graphics2D g2) {
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g2.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
+        g2.setRenderingHint(RenderingHints.KEY_COLOR_RENDERING, RenderingHints.VALUE_COLOR_RENDER_QUALITY);
+        g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+    }
+
+    private double resolveDeviceScale(Graphics2D g2, boolean horizontal) {
+        AffineTransform transform = g2.getTransform();
+        double transformScale = horizontal ? Math.abs(transform.getScaleX()) : Math.abs(transform.getScaleY());
+        if (isUsableScale(transformScale)) {
+            return transformScale;
+        }
+
+        GraphicsConfiguration configuration = getGraphicsConfiguration();
+        if (configuration != null) {
+            AffineTransform defaultTransform = configuration.getDefaultTransform();
+            double configurationScale = horizontal
+                    ? Math.abs(defaultTransform.getScaleX())
+                    : Math.abs(defaultTransform.getScaleY());
+            if (isUsableScale(configurationScale)) {
+                return configurationScale;
+            }
+        }
+        return 1.0;
+    }
+
+    private static boolean isUsableScale(double scale) {
+        return !Double.isNaN(scale) && !Double.isInfinite(scale) && scale > 0.0;
     }
 
     private void renderScene(Graphics2D g2) {
@@ -1290,47 +1328,47 @@ public class MapCanvas extends JPanel {
 
     private static Color roadColor(RoadType roadType) {
         if (roadType == RoadType.MAIN_ROAD) {
-            return new Color(53, 99, 233);
+            return new Color(46, 95, 165);
         }
         if (roadType == RoadType.STAIRS) {
-            return new Color(118, 86, 227);
+            return new Color(115, 94, 164);
         }
-        return new Color(92, 105, 117);
+        return new Color(128, 140, 154);
     }
 
     private static float roadWidth(RoadType roadType) {
         if (roadType == RoadType.MAIN_ROAD) {
-            return 4.4f;
+            return 4.8f;
         }
         if (roadType == RoadType.STAIRS) {
-            return 3.2f;
+            return 3.4f;
         }
-        return 2.8f;
+        return 2.9f;
     }
 
     private static Color placeColor(PlaceType placeType) {
         if (placeType == PlaceType.GATE) {
-            return new Color(57, 135, 245);
+            return new Color(40, 118, 209);
         }
         if (placeType == PlaceType.LIBRARY) {
-            return new Color(36, 171, 104);
+            return new Color(31, 154, 111);
         }
         if (placeType == PlaceType.CANTEEN) {
-            return new Color(242, 153, 63);
+            return new Color(219, 150, 53);
         }
         if (placeType == PlaceType.TEACHING_BUILDING) {
-            return new Color(140, 113, 235);
+            return new Color(84, 104, 207);
         }
         if (placeType == PlaceType.DORMITORY) {
-            return new Color(62, 167, 188);
+            return new Color(49, 150, 178);
         }
         if (placeType == PlaceType.OFFICE) {
-            return new Color(230, 111, 81);
+            return new Color(204, 104, 88);
         }
         if (placeType == PlaceType.SPORTS_CENTER) {
-            return new Color(68, 189, 98);
+            return new Color(66, 169, 99);
         }
-        return new Color(115, 125, 142);
+        return new Color(116, 128, 144);
     }
 
     private static final class SnapGuide {

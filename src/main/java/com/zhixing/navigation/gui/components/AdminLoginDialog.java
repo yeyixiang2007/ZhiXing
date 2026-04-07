@@ -2,6 +2,7 @@ package com.zhixing.navigation.gui.components;
 
 import com.zhixing.navigation.domain.model.Admin;
 import com.zhixing.navigation.gui.controller.AuthController;
+import com.zhixing.navigation.gui.styles.UiStyles;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -14,12 +15,15 @@ import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 
 public class AdminLoginDialog extends JDialog {
+    private static final int INPUT_FIELD_HEIGHT = 36;
+
     private final AuthController authController;
     private final JTextField usernameField;
     private final JPasswordField passwordField;
@@ -30,8 +34,11 @@ public class AdminLoginDialog extends JDialog {
     public AdminLoginDialog(JFrame owner, AuthController authController) {
         super(owner, "管理员登录", true);
         this.authController = authController;
-        this.usernameField = new JTextField(20);
+        this.usernameField = UiStyles.formField(20);
         this.passwordField = new JPasswordField(20);
+        UiStyles.applyTextFieldStyle(this.passwordField);
+        applyInputHeight(this.usernameField);
+        applyInputHeight(this.passwordField);
         this.errorLabel = new JLabel(" ");
 
         initializeLayout();
@@ -119,5 +126,11 @@ public class AdminLoginDialog extends JDialog {
 
     private static String safeTrim(String text) {
         return text == null ? "" : text.trim();
+    }
+
+    private static void applyInputHeight(JTextField field) {
+        Dimension preferredSize = field.getPreferredSize();
+        field.setPreferredSize(new Dimension(preferredSize.width, INPUT_FIELD_HEIGHT));
+        field.setMinimumSize(new Dimension(140, INPUT_FIELD_HEIGHT));
     }
 }

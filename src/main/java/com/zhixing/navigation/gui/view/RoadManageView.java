@@ -107,6 +107,7 @@ public class RoadManageView extends JPanel {
 
         JScrollPane tablePane = new JScrollPane(table);
         tablePane.setBorder(UiStyles.sectionBorder("道路列表"));
+        UiStyles.applyTableScrollPaneStyle(tablePane);
 
         add(form, BorderLayout.NORTH);
         add(tablePane, BorderLayout.CENTER);

@@ -97,6 +97,7 @@ public class VertexManageView extends JPanel {
 
         JScrollPane tablePane = new JScrollPane(table);
         tablePane.setBorder(UiStyles.sectionBorder("地点列表"));
+        UiStyles.applyTableScrollPaneStyle(tablePane);
 
         add(form, BorderLayout.NORTH);
         add(tablePane, BorderLayout.CENTER);

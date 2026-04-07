@@ -7,6 +7,7 @@ import com.zhixing.navigation.gui.styles.UiStyles;
 
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.Stroke;
@@ -25,6 +26,14 @@ final class MapCanvasOverlayRenderer {
             new float[]{8f, 6f},
             0f
     );
+    private static final Color SELECTION_ACCENT = new Color(42, 111, 214);
+    private static final Color EDGE_SELECTION = new Color(244, 147, 53);
+    private static final Color GUIDE_ACCENT = new Color(40, 140, 204, 190);
+    private static final int SCALE_BAR_PANEL_HEIGHT = 30;
+    private static final int SCALE_BAR_PANEL_RADIUS = 12;
+    private static final int SCALE_BAR_LEFT_PADDING = 14;
+    private static final int SCALE_BAR_RIGHT_PADDING = 18;
+    private static final int SCALE_BAR_LABEL_GAP = 16;
 
     void drawOverlay(
             Graphics2D g2,
@@ -96,7 +105,7 @@ final class MapCanvasOverlayRenderer {
             Function<Vertex, Point2D.Double> vertexProjector
     ) {
         if (!selectedVertexIds.isEmpty() && layerVisible.test(MapCanvas.Layer.VERTEX)) {
-            g2.setStroke(new BasicStroke(2.0f));
+            g2.setStroke(new BasicStroke(2.2f));
             for (String vertexId : selectedVertexIds) {
                 Vertex vertex = vertexById.apply(vertexId);
                 Point2D.Double point = vertexProjector.apply(vertex);
@@ -107,7 +116,11 @@ final class MapCanvasOverlayRenderer {
                 int diameter = radius * 2;
                 int left = (int) Math.round(point.x) - radius;
                 int top = (int) Math.round(point.y) - radius;
-                g2.setColor(new Color(255, 196, 0));
+                g2.setColor(new Color(255, 255, 255, 228));
+                g2.fillOval(left - 3, top - 3, diameter + 6, diameter + 6);
+                g2.setColor(new Color(SELECTION_ACCENT.getRed(), SELECTION_ACCENT.getGreen(), SELECTION_ACCENT.getBlue(), 34));
+                g2.fillOval(left - 1, top - 1, diameter + 2, diameter + 2);
+                g2.setColor(SELECTION_ACCENT);
                 g2.drawOval(left, top, diameter, diameter);
             }
         }
@@ -118,8 +131,14 @@ final class MapCanvasOverlayRenderer {
                 Point2D.Double from = vertexProjector.apply(edge.getFromVertex());
                 Point2D.Double to = vertexProjector.apply(edge.getToVertex());
                 if (from != null && to != null) {
-                    g2.setColor(new Color(255, 153, 0));
-                    g2.setStroke(new BasicStroke(5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.setColor(new Color(255, 255, 255, 215));
+                    g2.setStroke(new BasicStroke(9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.draw(new Line2D.Double(from, to));
+                    g2.setColor(new Color(EDGE_SELECTION.getRed(), EDGE_SELECTION.getGreen(), EDGE_SELECTION.getBlue(), 90));
+                    g2.setStroke(new BasicStroke(7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g2.draw(new Line2D.Double(from, to));
+                    g2.setColor(EDGE_SELECTION);
+                    g2.setStroke(new BasicStroke(4.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                     g2.draw(new Line2D.Double(from, to));
                 }
             }
@@ -133,8 +152,12 @@ final class MapCanvasOverlayRenderer {
                 int diameter = radius * 2;
                 int left = (int) Math.round(seedPoint.x) - radius;
                 int top = (int) Math.round(seedPoint.y) - radius;
-                g2.setColor(new Color(0, 191, 255, 180));
-                g2.setStroke(new BasicStroke(2.3f));
+                g2.setColor(new Color(255, 255, 255, 216));
+                g2.fillOval(left - 3, top - 3, diameter + 6, diameter + 6);
+                g2.setColor(new Color(40, 140, 204, 42));
+                g2.fillOval(left - 1, top - 1, diameter + 2, diameter + 2);
+                g2.setColor(new Color(40, 140, 204, 210));
+                g2.setStroke(new BasicStroke(2.4f));
                 g2.drawOval(left, top, diameter, diameter);
             }
         }
@@ -165,7 +188,10 @@ final class MapCanvasOverlayRenderer {
             return;
         }
         if (from != null) {
-            g2.setColor(new Color(0, 156, 255, 180));
+            g2.setColor(new Color(255, 255, 255, 205));
+            g2.setStroke(new BasicStroke(3.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{5f, 5f}, 0f));
+            g2.draw(new Line2D.Double(from, to));
+            g2.setColor(new Color(40, 140, 204, 180));
             g2.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{5f, 5f}, 0f));
             g2.draw(new Line2D.Double(from, to));
         }
@@ -174,9 +200,9 @@ final class MapCanvasOverlayRenderer {
         int left = (int) Math.round(to.x) - radius;
         int top = (int) Math.round(to.y) - radius;
         int diameter = radius * 2;
-        g2.setColor(new Color(255, 255, 255, 230));
+        g2.setColor(new Color(255, 255, 255, 232));
         g2.fillOval(left - 2, top - 2, diameter + 4, diameter + 4);
-        g2.setColor(new Color(30, 106, 255));
+        g2.setColor(new Color(40, 140, 204));
         g2.setStroke(new BasicStroke(2.1f));
         g2.drawOval(left - 2, top - 2, diameter + 4, diameter + 4);
         g2.setColor(placeColorProvider.apply(vertex.getType()));
@@ -190,9 +216,9 @@ final class MapCanvasOverlayRenderer {
         if (selectionRect == null) {
             return;
         }
-        g2.setColor(new Color(30, 106, 255, 35));
+        g2.setColor(new Color(SELECTION_ACCENT.getRed(), SELECTION_ACCENT.getGreen(), SELECTION_ACCENT.getBlue(), 28));
         g2.fill(selectionRect);
-        g2.setColor(new Color(30, 106, 255, 160));
+        g2.setColor(new Color(SELECTION_ACCENT.getRed(), SELECTION_ACCENT.getGreen(), SELECTION_ACCENT.getBlue(), 150));
         g2.setStroke(new BasicStroke(1.2f));
         g2.draw(selectionRect);
     }
@@ -213,7 +239,7 @@ final class MapCanvasOverlayRenderer {
         if (!snapGuideVisible) {
             return;
         }
-        g2.setColor(new Color(0, 156, 255, 190));
+        g2.setColor(GUIDE_ACCENT);
         Stroke previous = g2.getStroke();
         g2.setStroke(ALIGNMENT_GUIDE_STROKE);
         if (snapVertical) {
@@ -258,8 +284,18 @@ final class MapCanvasOverlayRenderer {
 
         int x = viewPadding + 14;
         int y = Math.max(canvasHeight - 24, viewPadding + 28);
-        g2.setColor(new Color(255, 255, 255, 220));
-        g2.fillRoundRect(x - 8, y - 18, barPixels + 52, 28, 10, 10);
+        String label = formatDistanceLabel(displayMeters);
+        g2.setFont(UiStyles.CAPTION_FONT);
+        FontMetrics metrics = g2.getFontMetrics();
+        int labelWidth = metrics.stringWidth(label);
+        int panelWidth = SCALE_BAR_LEFT_PADDING + barPixels + SCALE_BAR_LABEL_GAP + labelWidth + SCALE_BAR_RIGHT_PADDING;
+        int panelX = x - SCALE_BAR_LEFT_PADDING;
+        int panelY = y - (SCALE_BAR_PANEL_HEIGHT / 2) - 5;
+
+        g2.setColor(new Color(255, 255, 255, 232));
+        g2.fillRoundRect(panelX, panelY, panelWidth, SCALE_BAR_PANEL_HEIGHT, SCALE_BAR_PANEL_RADIUS, SCALE_BAR_PANEL_RADIUS);
+        g2.setColor(new Color(210, 219, 230));
+        g2.drawRoundRect(panelX, panelY, panelWidth, SCALE_BAR_PANEL_HEIGHT, SCALE_BAR_PANEL_RADIUS, SCALE_BAR_PANEL_RADIUS);
 
         g2.setColor(new Color(45, 57, 72));
         g2.setStroke(new BasicStroke(2.2f));
@@ -267,9 +303,9 @@ final class MapCanvasOverlayRenderer {
         g2.drawLine(x, y - 5, x, y + 5);
         g2.drawLine(x + barPixels, y - 5, x + barPixels, y + 5);
 
-        String label = formatDistanceLabel(displayMeters);
-        g2.setFont(UiStyles.CAPTION_FONT);
-        g2.drawString(label, x + barPixels + 10, y + 5);
+        int labelX = x + barPixels + SCALE_BAR_LABEL_GAP;
+        int labelY = panelY + ((SCALE_BAR_PANEL_HEIGHT - metrics.getHeight()) / 2) + metrics.getAscent();
+        g2.drawString(label, labelX, labelY);
     }
 
     private static double clamp(double value, double min, double max) {
