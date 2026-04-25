@@ -68,8 +68,8 @@ final class MapCanvasZoomManager {
         int width = Math.max(canvas.getWidth(), 1);
         int height = Math.max(canvas.getHeight(), 1);
 
-        double availableWidth = Math.max(width - MapCanvas.VIEW_PADDING * 2, 20);
-        double availableHeight = Math.max(height - MapCanvas.VIEW_PADDING * 2, 20);
+        double availableWidth = Math.max(width - MapConfig.VIEW_PADDING * 2, 20);
+        double availableHeight = Math.max(height - MapConfig.VIEW_PADDING * 2, 20);
 
         double safeWorldWidth = Math.max(canvas.worldWidth, 1);
         double safeWorldHeight = Math.max(canvas.worldHeight, 1);
@@ -80,8 +80,8 @@ final class MapCanvasZoomManager {
         double scaledWidth = safeWorldWidth * canvas.baseScale * canvas.zoom;
         double scaledHeight = safeWorldHeight * canvas.baseScale * canvas.zoom;
 
-        canvas.viewOriginX = MapCanvas.VIEW_PADDING + (availableWidth - scaledWidth) / 2.0 + canvas.panX;
-        canvas.viewOriginY = MapCanvas.VIEW_PADDING + (availableHeight - scaledHeight) / 2.0 + canvas.panY;
+        canvas.viewOriginX = MapConfig.VIEW_PADDING + (availableWidth - scaledWidth) / 2.0 + canvas.panX;
+        canvas.viewOriginY = MapConfig.VIEW_PADDING + (availableHeight - scaledHeight) / 2.0 + canvas.panY;
 
         canvas.projectedVertexCache.clear();
         canvas.projectionDirty = false;
@@ -124,15 +124,15 @@ final class MapCanvasZoomManager {
     Point2D.Double snapToWorld(Point2D.Double world, String movingVertexId, boolean previewOnly) {
         updateProjection();
         double unitToScreen = Math.max(canvas.baseScale * canvas.zoom, 0.001);
-        double axisThresholdWorld = MapCanvas.AXIS_ALIGN_PIXELS / unitToScreen;
+        double axisThresholdWorld = MapConfig.AXIS_ALIGN_PIXELS / unitToScreen;
         MapCanvasSnapEngine.Outcome outcome = MapCanvasSnapEngine.apply(
                 world,
                 movingVertexId,
                 canvas.vertices,
                 canvas.isLayerLocked(MapCanvas.Layer.VERTEX),
-                MapCanvas.GRID_SNAP_SIZE,
-                MapCanvas.GRID_SNAP_PIXELS,
-                MapCanvas.SNAP_VERTEX_PIXELS,
+                MapConfig.GRID_SNAP_SIZE,
+                MapConfig.GRID_SNAP_PIXELS,
+                MapConfig.SNAP_VERTEX_PIXELS,
                 axisThresholdWorld,
                 canvas::project,
                 canvas::project
@@ -191,10 +191,10 @@ final class MapCanvasZoomManager {
             maxY = Math.max(maxY, vertex.getY());
         }
 
-        canvas.worldMinX = minX - MapCanvas.WORLD_PADDING;
-        canvas.worldMaxX = maxX + MapCanvas.WORLD_PADDING;
-        canvas.worldMinY = minY - MapCanvas.WORLD_PADDING;
-        canvas.worldMaxY = maxY + MapCanvas.WORLD_PADDING;
+        canvas.worldMinX = minX - MapConfig.WORLD_PADDING;
+        canvas.worldMaxX = maxX + MapConfig.WORLD_PADDING;
+        canvas.worldMinY = minY - MapConfig.WORLD_PADDING;
+        canvas.worldMaxY = maxY + MapConfig.WORLD_PADDING;
         canvas.worldWidth = Math.max(1, canvas.worldMaxX - canvas.worldMinX);
         canvas.worldHeight = Math.max(1, canvas.worldMaxY - canvas.worldMinY);
         canvas.projectionDirty = true;
@@ -203,18 +203,18 @@ final class MapCanvasZoomManager {
     void clampPanOffsets() {
         int width = Math.max(canvas.getWidth(), 1);
         int height = Math.max(canvas.getHeight(), 1);
-        double availableWidth = Math.max(width - MapCanvas.VIEW_PADDING * 2, 20);
-        double availableHeight = Math.max(height - MapCanvas.VIEW_PADDING * 2, 20);
+        double availableWidth = Math.max(width - MapConfig.VIEW_PADDING * 2, 20);
+        double availableHeight = Math.max(height - MapConfig.VIEW_PADDING * 2, 20);
         double safeWorldWidth = Math.max(canvas.worldWidth, 1);
         double safeWorldHeight = Math.max(canvas.worldHeight, 1);
         double localBaseScale = Math.min(availableWidth / safeWorldWidth, availableHeight / safeWorldHeight);
         localBaseScale = Math.max(localBaseScale, 0.01);
         double scaledWidth = safeWorldWidth * localBaseScale * canvas.zoom;
         double scaledHeight = safeWorldHeight * localBaseScale * canvas.zoom;
-        double extraOffsetX = Math.max(availableWidth, scaledWidth) * MapCanvas.PAN_OVERSCROLL_FACTOR;
-        double extraOffsetY = Math.max(availableHeight, scaledHeight) * MapCanvas.PAN_OVERSCROLL_FACTOR;
-        double maxOffsetX = Math.max((availableWidth + scaledWidth) / 2.0 - MapCanvas.PAN_VISIBLE_MIN_PIXELS + extraOffsetX, 0);
-        double maxOffsetY = Math.max((availableHeight + scaledHeight) / 2.0 - MapCanvas.PAN_VISIBLE_MIN_PIXELS + extraOffsetY, 0);
+        double extraOffsetX = Math.max(availableWidth, scaledWidth) * MapConfig.PAN_OVERSCROLL_FACTOR;
+        double extraOffsetY = Math.max(availableHeight, scaledHeight) * MapConfig.PAN_OVERSCROLL_FACTOR;
+        double maxOffsetX = Math.max((availableWidth + scaledWidth) / 2.0 - MapConfig.PAN_VISIBLE_MIN_PIXELS + extraOffsetX, 0);
+        double maxOffsetY = Math.max((availableHeight + scaledHeight) / 2.0 - MapConfig.PAN_VISIBLE_MIN_PIXELS + extraOffsetY, 0);
         canvas.panX = MapCanvas.clamp(canvas.panX, -maxOffsetX, maxOffsetX);
         canvas.panY = MapCanvas.clamp(canvas.panY, -maxOffsetY, maxOffsetY);
     }

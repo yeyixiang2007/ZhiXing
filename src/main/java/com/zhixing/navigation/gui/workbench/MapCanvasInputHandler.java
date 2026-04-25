@@ -99,8 +99,8 @@ final class MapCanvasInputHandler {
             @Override
             public void mouseWheelMoved(MouseWheelEvent event) {
                 double oldZoom = canvas.zoom;
-                double factor = event.getWheelRotation() < 0 ? MapCanvas.ZOOM_STEP : (1.0 / MapCanvas.ZOOM_STEP);
-                double nextZoom = MapCanvas.clamp(oldZoom * factor, MapCanvas.MIN_ZOOM, MapCanvas.MAX_ZOOM);
+                double factor = event.getWheelRotation() < 0 ? MapConfig.ZOOM_STEP : (1.0 / MapConfig.ZOOM_STEP);
+                double nextZoom = MapCanvas.clamp(oldZoom * factor, MapConfig.MIN_ZOOM, MapConfig.MAX_ZOOM);
                 if (Math.abs(nextZoom - oldZoom) < 1e-6) {
                     return;
                 }
@@ -407,7 +407,7 @@ final class MapCanvasInputHandler {
                 canvas::project,
                 canvas.isLayerVisible(MapCanvas.Layer.VERTEX),
                 canvas.isLayerLocked(MapCanvas.Layer.VERTEX),
-                MapCanvas.MOVE_HIT_THRESHOLD_PIXELS
+                MapConfig.MOVE_HIT_THRESHOLD_PIXELS
         );
     }
 

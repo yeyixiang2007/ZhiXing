@@ -109,7 +109,7 @@ final class MapCanvasRenderCoordinator {
                 g2,
                 canvas.getWidth(),
                 canvas.getHeight(),
-                MapCanvas.VIEW_PADDING,
+                MapConfig.VIEW_PADDING,
                 canvas.zoom,
                 canvas.baseScale,
                 canvas.worldMinX,
@@ -125,10 +125,10 @@ final class MapCanvasRenderCoordinator {
                 layer -> Float.valueOf(canvas.getLayerOpacity(layer)),
                 vertex -> canvas.project(vertex),
                 world -> canvas.project(world),
-                MapCanvas::roadColor,
-                roadType -> Float.valueOf(MapCanvas.roadWidth(roadType)),
-                MapCanvas::placeColor,
-                MapCanvas::withOpacity
+                MapConfig::roadColor,
+                roadType -> Float.valueOf(MapConfig.roadWidth(roadType)),
+                MapConfig::placeColor,
+                MapConfig::withOpacity
         );
     }
 
