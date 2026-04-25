@@ -11,23 +11,18 @@ import com.zhixing.navigation.gui.view.VertexManageView;
 import com.zhixing.navigation.gui.workbench.state.MapViewState;
 import com.zhixing.navigation.gui.workbench.WorkbenchFeedback;
 import com.zhixing.navigation.gui.workbench.command.CommandBus;
-import com.zhixing.navigation.gui.workbench.command.UndoableCommand;
 import com.zhixing.navigation.gui.controller.MapController;
 import com.zhixing.navigation.gui.routing.AppRoute;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 final class MainViewAdminEditCoordinator {
-    private static final String AUTO_VERTEX_ID_PREFIX = "SCU-JA-OT-OT-";
-
     private final MapController mapController;
     private final WorkbenchFeedback feedback;
     private final MapViewState viewState;
@@ -37,7 +32,8 @@ final class MainViewAdminEditCoordinator {
     private final Supplier<AppRoute> activeRouteSupplier;
     private final Runnable refreshAllData;
     private final Runnable refreshUndoRedoButtons;
-    private int autoVertexCounter;
+    private final EditCommandHandler editCommandHandler;
+    private final AdminEditDataHelper dataHelper;
 
     MainViewAdminEditCoordinator(
             MapController mapController,
@@ -59,16 +55,13 @@ final class MainViewAdminEditCoordinator {
         this.activeRouteSupplier = activeRouteSupplier;
         this.refreshAllData = refreshAllData;
         this.refreshUndoRedoButtons = refreshUndoRedoButtons;
-        this.autoVertexCounter = 1;
+        this.editCommandHandler = new EditCommandHandler(feedback, adminCommandBus, currentAdminSupplier, ensureAdminLoggedIn, refreshAllData, refreshUndoRedoButtons);
+        this.dataHelper = new AdminEditDataHelper(mapController);
     }
 
-    boolean canUndo() {
-        return adminCommandBus.canUndo();
-    }
+    boolean canUndo() { return editCommandHandler.canUndo(); }
 
-    boolean canRedo() {
-        return adminCommandBus.canRedo();
-    }
+    boolean canRedo() { return editCommandHandler.canRedo(); }
 
     boolean isAdminEditingAvailable() {
         return activeRouteSupplier.get() == AppRoute.ADMIN_MODE && currentAdminSupplier.get() != null;
@@ -493,164 +486,27 @@ final class MainViewAdminEditCoordinator {
         handleSetRoadForbidden(edge.getFromVertex().getId(), edge.getToVertex().getId(), !edge.isForbidden());
     }
 
-    void undoLastEdit() {
-        if (!adminCommandBus.canUndo()) {
-            feedback.info("没有可撤销的编辑。");
-            return;
-        }
-        if (!ensureAdminLoggedIn.getAsBoolean()) {
-            return;
-        }
-        Admin operator = currentAdminSupplier.get();
-        try {
-            feedback.showLoading("正在撤销上一步编辑...");
-            adminCommandBus.undo(operator);
-            refreshAllData.run();
-            feedback.info("撤销成功。");
-            feedback.setStatus("管理员模式: 已撤销");
-        } catch (RuntimeException ex) {
-            feedback.showOperationError("撤销失败", ex);
-            feedback.setStatus("管理员模式: 撤销失败");
-        } finally {
-            feedback.hideLoading();
-            refreshUndoRedoButtons.run();
-        }
-    }
+    void undoLastEdit() { editCommandHandler.undoLastEdit(); }
 
-    void redoLastEdit() {
-        if (!adminCommandBus.canRedo()) {
-            feedback.info("没有可重做的编辑。");
-            return;
-        }
-        if (!ensureAdminLoggedIn.getAsBoolean()) {
-            return;
-        }
-        Admin operator = currentAdminSupplier.get();
-        try {
-            feedback.showLoading("正在重做上一步编辑...");
-            adminCommandBus.redo(operator);
-            refreshAllData.run();
-            feedback.info("重做成功。");
-            feedback.setStatus("管理员模式: 已重做");
-        } catch (RuntimeException ex) {
-            feedback.showOperationError("重做失败", ex);
-            feedback.setStatus("管理员模式: 重做失败");
-        } finally {
-            feedback.hideLoading();
-            refreshUndoRedoButtons.run();
-        }
-    }
+    void redoLastEdit() { editCommandHandler.redoLastEdit(); }
 
-    private void executeAdminEditCommand(String loadingText, AdminEditCommand command) {
-        if (!ensureAdminLoggedIn.getAsBoolean()) {
-            return;
-        }
-        Admin operator = currentAdminSupplier.get();
-        try {
-            feedback.showLoading(loadingText);
-            adminCommandBus.execute(command, operator);
-            refreshAllData.run();
-            feedback.success(command.successMessage());
-            feedback.setStatus("管理员模式: " + command.successMessage());
-        } catch (RuntimeException ex) {
-            feedback.showOperationError("操作失败", ex);
-            feedback.setStatus("管理员模式: 操作失败");
-        } finally {
-            feedback.hideLoading();
-            refreshUndoRedoButtons.run();
-        }
-    }
+    private void executeAdminEditCommand(String loadingText, EditCommandHandler.AdminEditCommand command) { editCommandHandler.executeAdminEditCommand(loadingText, command); }
 
-    private AdminEditCommand adminEditCommand(String successMessage, AdminAction executeAction, AdminAction undoAction) {
-        return new AdminEditCommand() {
-            @Override
-            public void execute(Admin admin) {
-                executeAction.apply(admin);
-            }
+    private EditCommandHandler.AdminEditCommand adminEditCommand(String successMessage, EditCommandHandler.AdminAction executeAction, EditCommandHandler.AdminAction undoAction) { return editCommandHandler.adminEditCommand(successMessage, executeAction, undoAction); }
 
-            @Override
-            public void undo(Admin admin) {
-                undoAction.apply(admin);
-            }
+    private String generateAutoVertexId() { return dataHelper.generateAutoVertexId(); }
 
-            @Override
-            public String successMessage() {
-                return successMessage;
-            }
-        };
-    }
+    private Vertex requireVertex(String vertexId) { return dataHelper.requireVertex(vertexId); }
 
-    private String generateAutoVertexId() {
-        Set<String> used = new HashSet<String>();
-        for (Vertex vertex : mapController.listVertices()) {
-            used.add(vertex.getId());
-        }
-        while (true) {
-            String candidate = AUTO_VERTEX_ID_PREFIX + String.format("%03d", autoVertexCounter++);
-            if (!used.contains(candidate)) {
-                return candidate;
-            }
-        }
-    }
+    private Edge requireRoad(String fromId, String toId) { return dataHelper.requireRoad(fromId, toId); }
 
-    private Vertex requireVertex(String vertexId) {
-        Vertex vertex = findVertexById(vertexId);
-        if (vertex == null) {
-            throw new IllegalArgumentException("未找到点位: " + vertexId);
-        }
-        return vertex;
-    }
+    private List<Edge> listCanonicalRoads() { return dataHelper.listCanonicalRoads(); }
 
-    private Edge requireRoad(String fromId, String toId) {
-        for (Edge edge : mapController.listRoads()) {
-            if (edge.getFromVertex().getId().equals(fromId) && edge.getToVertex().getId().equals(toId)) {
-                return edge;
-            }
-        }
-        throw new IllegalArgumentException("未找到道路: " + fromId + " -> " + toId);
-    }
+    private List<Edge> listRelatedCanonicalRoads(Set<String> vertexIds) { return dataHelper.listRelatedCanonicalRoads(vertexIds); }
 
-    private List<Edge> listCanonicalRoads() {
-        List<Edge> roads = mapController.listRoads();
-        Map<String, Edge> deduped = new LinkedHashMap<String, Edge>();
-        for (Edge edge : roads) {
-            String key = toRoadKey(edge);
-            if (!deduped.containsKey(key)) {
-                deduped.put(key, edge);
-            }
-        }
-        return new ArrayList<Edge>(deduped.values());
-    }
+    private void restoreRoads(Admin admin, List<Edge> roads) { dataHelper.restoreRoads(admin, roads); }
 
-    private List<Edge> listRelatedCanonicalRoads(Set<String> vertexIds) {
-        List<Edge> roads = new ArrayList<Edge>();
-        for (Edge edge : listCanonicalRoads()) {
-            String fromId = edge.getFromVertex().getId();
-            String toId = edge.getToVertex().getId();
-            if (vertexIds.contains(fromId) || vertexIds.contains(toId)) {
-                roads.add(edge);
-            }
-        }
-        return roads;
-    }
-
-    private void restoreRoads(Admin admin, List<Edge> roads) {
-        for (Edge edge : roads) {
-            mapController.addRoad(admin, edge.getFromVertex().getId(), edge.getToVertex().getId(), edge.getWeight(), edge.isOneWay(), edge.isForbidden(), edge.getRoadType());
-        }
-    }
-
-    private static String toRoadKey(Edge edge) {
-        String from = edge.getFromVertex().getId();
-        String to = edge.getToVertex().getId();
-        if (edge.isOneWay()) {
-            return "ONE:" + from + "->" + to;
-        }
-        if (from.compareTo(to) <= 0) {
-            return "TWO:" + from + "<->" + to;
-        }
-        return "TWO:" + to + "<->" + from;
-    }
+    private static String toRoadKey(Edge edge) { return AdminEditDataHelper.toRoadKey(edge); }
 
     private static String safeTrim(String value) {
         return value == null ? "" : value.trim();
@@ -676,12 +532,4 @@ final class MainViewAdminEditCoordinator {
         return value;
     }
 
-    private interface AdminEditCommand extends UndoableCommand<Admin> {
-        String successMessage();
-    }
-
-    @FunctionalInterface
-    private interface AdminAction {
-        void apply(Admin admin);
-    }
 }
