@@ -37,16 +37,16 @@ if ([string]::IsNullOrWhiteSpace($dependencyClasspath)) {
     }
     $dependencyJars = @(
         @{
-            Path = Join-Path $depsDir "slf4j-api-2.0.16.jar"
-            Url = "https://repo1.maven.org/maven2/org/slf4j/slf4j-api/1.7.36/slf4j-api-2.0.16.jar"
+            Path = Join-Path $depsDir "slf4j-api-1.7.36.jar"
+            Url = "https://repo1.maven.org/maven2/org/slf4j/slf4j-api/1.7.36/slf4j-api-1.7.36.jar"
         },
         @{
-            Path = Join-Path $depsDir "logback-classic-1.5.8.jar"
-            Url = "https://repo1.maven.org/maven2/ch/qos/logback/logback-classic/1.2.11/logback-classic-1.5.8.jar"
+            Path = Join-Path $depsDir "logback-classic-1.2.11.jar"
+            Url = "https://repo1.maven.org/maven2/ch/qos/logback/logback-classic/1.2.11/logback-classic-1.2.11.jar"
         },
         @{
-            Path = Join-Path $depsDir "logback-core-1.5.8.jar"
-            Url = "https://repo1.maven.org/maven2/ch/qos/logback/logback-core/1.2.11/logback-core-1.5.8.jar"
+            Path = Join-Path $depsDir "logback-core-1.2.11.jar"
+            Url = "https://repo1.maven.org/maven2/ch/qos/logback/logback-core/1.2.11/logback-core-1.2.11.jar"
         }
     )
     foreach ($dependency in $dependencyJars) {
