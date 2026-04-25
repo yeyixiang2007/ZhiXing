@@ -4,6 +4,7 @@ import com.zhixing.navigation.domain.model.PlaceType;
 import com.zhixing.navigation.domain.model.RoadType;
 import com.zhixing.navigation.domain.model.Vertex;
 import com.zhixing.navigation.gui.model.RouteVisualizationDto;
+import com.zhixing.navigation.gui.styles.UiStyles;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -103,7 +104,11 @@ boolean projectionDirty; double worldMinX;
         MOVE_VERTEX
     }
     public MapCanvas() {
-        setBackground(new Color(243, 247, 251));
+        setBackground(new Color(
+                UiStyles.MAP_CANVAS_BACKGROUND_RED,
+                UiStyles.MAP_CANVAS_BACKGROUND_GREEN,
+                UiStyles.MAP_CANVAS_BACKGROUND_BLUE
+        ));
         setOpaque(true);
         this.vertices = new ArrayList<Vertex>();
         this.edges = new ArrayList<Edge>();

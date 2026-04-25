@@ -104,7 +104,7 @@ final class MainViewAdminToolbarBuilder {
     }
 
     JPanel createMapOverlayToolbar() {
-        Color toolbarBackground = new Color(255, 255, 255, 248);
+        Color toolbarBackground = UiStyles.OVERLAY_PANEL_BACKGROUND;
         JPanel palette = new JPanel();
         palette.setLayout(new BoxLayout(palette, BoxLayout.Y_AXIS));
         palette.setOpaque(true);
@@ -203,20 +203,20 @@ final class MainViewAdminToolbarBuilder {
         JButton button = new JButton(glyph);
         button.setToolTipText(tooltip);
         button.setFocusPainted(false);
-        button.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 17));
+        button.setFont(UiStyles.PALETTE_BUTTON_FONT);
         button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         button.setHorizontalAlignment(SwingConstants.CENTER);
-        button.setPreferredSize(new Dimension(46, 46));
-        button.setMaximumSize(new Dimension(46, 46));
-        button.setMinimumSize(new Dimension(46, 46));
+        button.setPreferredSize(new Dimension(UiStyles.PALETTE_BUTTON_SIZE, UiStyles.PALETTE_BUTTON_SIZE));
+        button.setMaximumSize(new Dimension(UiStyles.PALETTE_BUTTON_SIZE, UiStyles.PALETTE_BUTTON_SIZE));
+        button.setMinimumSize(new Dimension(UiStyles.PALETTE_BUTTON_SIZE, UiStyles.PALETTE_BUTTON_SIZE));
         button.setContentAreaFilled(true);
         button.setBorderPainted(true);
         button.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(214, 223, 234)),
+                BorderFactory.createLineBorder(UiStyles.PALETTE_BUTTON_BORDER),
                 BorderFactory.createEmptyBorder(2, 2, 2, 2)
         ));
-        button.setBackground(new Color(249, 251, 253));
-        button.setForeground(new Color(55, 69, 87));
+        button.setBackground(UiStyles.PALETTE_BUTTON_BACKGROUND);
+        button.setForeground(UiStyles.PALETTE_BUTTON_TEXT);
         button.setOpaque(true);
         return button;
     }
@@ -232,18 +232,18 @@ final class MainViewAdminToolbarBuilder {
 
     JButton createAdminSectionButton(String sectionKey, String text) {
         JButton button = UiStyles.ghostButton(text);
-        button.setPreferredSize(new Dimension(0, 44));
-        button.setMinimumSize(new Dimension(0, 44));
-        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        button.setPreferredSize(new Dimension(0, UiStyles.ADMIN_SECTION_BUTTON_HEIGHT));
+        button.setMinimumSize(new Dimension(0, UiStyles.ADMIN_SECTION_BUTTON_HEIGHT));
+        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, UiStyles.ADMIN_SECTION_BUTTON_HEIGHT));
         button.addActionListener(e -> showAdminSection(sectionKey));
         view.adminSectionButtons.put(sectionKey, button);
         return button;
     }
 
     void styleAdminHeaderButton(JButton button) {
-        button.setPreferredSize(new Dimension(132, 40));
-        button.setMinimumSize(new Dimension(120, 40));
-        button.setMaximumSize(new Dimension(160, 40));
+        button.setPreferredSize(new Dimension(UiStyles.ADMIN_HEADER_BUTTON_WIDTH, UiStyles.ADMIN_HEADER_BUTTON_HEIGHT));
+        button.setMinimumSize(new Dimension(120, UiStyles.ADMIN_HEADER_BUTTON_HEIGHT));
+        button.setMaximumSize(new Dimension(160, UiStyles.ADMIN_HEADER_BUTTON_HEIGHT));
     }
 
     void showAdminSection(String sectionKey) {
@@ -296,22 +296,22 @@ final class MainViewAdminToolbarBuilder {
             return;
         }
         if (active) {
-            button.setBackground(new Color(223, 236, 251));
-            button.setForeground(new Color(17, 58, 115));
+            button.setBackground(UiStyles.PALETTE_BUTTON_ACTIVE_BACKGROUND);
+            button.setForeground(UiStyles.PALETTE_BUTTON_ACTIVE);
             button.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(new Color(17, 58, 115), 3),
+                    BorderFactory.createLineBorder(UiStyles.PALETTE_BUTTON_ACTIVE, 3),
                     BorderFactory.createEmptyBorder(1, 1, 1, 1)
             ));
-            button.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
+            button.setFont(UiStyles.PALETTE_BUTTON_ACTIVE_FONT);
             return;
         }
-        button.setBackground(new Color(249, 251, 253));
-        button.setForeground(new Color(55, 69, 87));
+        button.setBackground(UiStyles.PALETTE_BUTTON_BACKGROUND);
+        button.setForeground(UiStyles.PALETTE_BUTTON_TEXT);
         button.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(214, 223, 234)),
+                BorderFactory.createLineBorder(UiStyles.PALETTE_BUTTON_BORDER),
                 BorderFactory.createEmptyBorder(2, 2, 2, 2)
         ));
-        button.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 17));
+        button.setFont(UiStyles.PALETTE_BUTTON_FONT);
     }
 
 }

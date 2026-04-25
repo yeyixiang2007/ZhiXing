@@ -159,7 +159,7 @@ final class MainViewLayoutBuilder {
 
         JLabel subtitle = new JLabel("Campus Routing & Map Editor");
         subtitle.setFont(UiStyles.CAPTION_FONT);
-        subtitle.setForeground(new Color(214, 232, 255));
+        subtitle.setForeground(UiStyles.TOP_BAR_SUBTLE_TEXT);
 
         titleBlock.add(title);
         titleBlock.add(Box.createVerticalStrut(2));
@@ -173,7 +173,7 @@ final class MainViewLayoutBuilder {
 
         view.topModeDescriptionLabel = new JLabel();
         view.topModeDescriptionLabel.setFont(UiStyles.CAPTION_FONT);
-        view.topModeDescriptionLabel.setForeground(new Color(214, 232, 255));
+        view.topModeDescriptionLabel.setForeground(UiStyles.TOP_BAR_SUBTLE_TEXT);
         view.topModeDescriptionLabel.setAlignmentX(java.awt.Component.RIGHT_ALIGNMENT);
         view.topModeDescriptionLabel.setHorizontalAlignment(SwingConstants.RIGHT);
 
@@ -182,7 +182,7 @@ final class MainViewLayoutBuilder {
 
         JLabel timeLabel = new JLabel("启动时间  " + view.startupTimeText, SwingConstants.RIGHT);
         timeLabel.setFont(UiStyles.CAPTION_FONT);
-        timeLabel.setForeground(new Color(214, 232, 255));
+        timeLabel.setForeground(UiStyles.TOP_BAR_SUBTLE_TEXT);
         timeLabel.setAlignmentX(java.awt.Component.RIGHT_ALIGNMENT);
 
         JPanel badgeRow = new JPanel();

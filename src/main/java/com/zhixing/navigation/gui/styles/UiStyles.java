@@ -67,6 +67,13 @@ public final class UiStyles {
     public static final Color INFO = new Color(45, 108, 223);
     public static final Color INFO_SOFT = new Color(229, 240, 255);
     public static final Color ROUTE_HIGHLIGHT = new Color(255, 159, 10);
+    public static final Color TOP_BAR_SUBTLE_TEXT = new Color(214, 232, 255);
+    public static final Color OVERLAY_PANEL_BACKGROUND = new Color(255, 255, 255, 248);
+    public static final Color PALETTE_BUTTON_BACKGROUND = new Color(249, 251, 253);
+    public static final Color PALETTE_BUTTON_BORDER = new Color(214, 223, 234);
+    public static final Color PALETTE_BUTTON_TEXT = new Color(55, 69, 87);
+    public static final Color PALETTE_BUTTON_ACTIVE_BACKGROUND = new Color(223, 236, 251);
+    public static final Color PALETTE_BUTTON_ACTIVE = new Color(17, 58, 115);
 
     public static final Color PAGE_BACKGROUND = BACKGROUND;
     public static final Color PANEL_BACKGROUND = SURFACE;
@@ -77,6 +84,16 @@ public final class UiStyles {
     public static final Font BODY_FONT = new Font("Microsoft YaHei UI", Font.PLAIN, 13);
     public static final Font CAPTION_FONT = new Font("Microsoft YaHei UI", Font.PLAIN, 12);
     public static final Font METRIC_FONT = new Font("Microsoft YaHei UI", Font.BOLD, 20);
+    public static final Font PALETTE_BUTTON_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 17);
+    public static final Font PALETTE_BUTTON_ACTIVE_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 18);
+
+    public static final int PALETTE_BUTTON_SIZE = 46;
+    public static final int ADMIN_SECTION_BUTTON_HEIGHT = 44;
+    public static final int ADMIN_HEADER_BUTTON_WIDTH = 132;
+    public static final int ADMIN_HEADER_BUTTON_HEIGHT = 40;
+    public static final int MAP_CANVAS_BACKGROUND_RED = 243;
+    public static final int MAP_CANVAS_BACKGROUND_GREEN = 247;
+    public static final int MAP_CANVAS_BACKGROUND_BLUE = 251;
 
     private UiStyles() {
     }
