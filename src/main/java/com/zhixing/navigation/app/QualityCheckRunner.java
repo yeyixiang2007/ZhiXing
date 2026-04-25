@@ -1,5 +1,7 @@
 package com.zhixing.navigation.app;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.zhixing.navigation.application.auth.AuthService;
 import com.zhixing.navigation.application.auth.AuthorizationException;
 import com.zhixing.navigation.application.map.MapService;
@@ -36,6 +38,7 @@ import java.util.List;
 import java.util.Scanner;
 
 public class QualityCheckRunner {
+    private static final Logger LOGGER = LoggerFactory.getLogger(QualityCheckRunner.class);
     private int passed;
     private int failed;
     private double pathCostMs;
@@ -48,20 +51,20 @@ public class QualityCheckRunner {
     }
 
     private void runAll() {
-        System.out.println("=== Quality Check Start ===");
+        LOGGER.info("=== Quality Check Start ===");
         runCase("G1 用户主流程联调（地图选点 -> 查询 -> 路径展示）", this::testUserMainFlowIntegration);
         runCase("G2 管理员主流程联调（标点 -> 连线 -> 禁行 -> 保存）", this::testAdminMainFlowIntegration);
         runCase("G3 异常流程测试（非法输入、不可达、权限越界、文件异常）", this::testExceptionFlowRegression);
         runCase("G4 性能验证（GUI启动 <= 2s，查询 <= 1s，地图交互无明显卡顿）", this::testPerformanceValidation);
         runCase("G5 回归脚本与演示脚本更新", this::testScriptUpdates);
 
-        System.out.println();
-        System.out.println("=== Quality Check Summary ===");
-        System.out.println("Passed: " + passed);
-        System.out.println("Failed: " + failed);
-        System.out.println("Path performance(avg): " + formatMs(pathCostMs) + " ms");
-        System.out.println("Startup performance(avg): " + formatMs(startupCostMs) + " ms");
-        System.out.println("Map interaction(avg): " + formatMs(mapInteractionCostMs) + " ms");
+        LOGGER.info("");
+        LOGGER.info("=== Quality Check Summary ===");
+        LOGGER.info("Passed: " + passed);
+        LOGGER.info("Failed: " + failed);
+        LOGGER.info("Path performance(avg): " + formatMs(pathCostMs) + " ms");
+        LOGGER.info("Startup performance(avg): " + formatMs(startupCostMs) + " ms");
+        LOGGER.info("Map interaction(avg): " + formatMs(mapInteractionCostMs) + " ms");
 
         if (failed > 0) {
             System.exit(1);
@@ -74,12 +77,12 @@ public class QualityCheckRunner {
             runnable.run();
             long elapsedMs = elapsedMs(startNs);
             passed++;
-            System.out.println("[PASS] " + caseName + " (" + elapsedMs + " ms)");
+            LOGGER.info("[PASS] " + caseName + " (" + elapsedMs + " ms)");
         } catch (Throwable ex) {
             long elapsedMs = elapsedMs(startNs);
             failed++;
-            System.out.println("[FAIL] " + caseName + " (" + elapsedMs + " ms)");
-            System.out.println("       -> " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            LOGGER.info("[FAIL] " + caseName + " (" + elapsedMs + " ms)");
+            LOGGER.info("       -> " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
         }
     }
 

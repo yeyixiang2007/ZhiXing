@@ -1,5 +1,7 @@
 package com.zhixing.navigation.app;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.zhixing.navigation.application.auth.AuthService;
 import com.zhixing.navigation.application.auth.AuthenticationException;
 import com.zhixing.navigation.application.map.MapService;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Scanner;
 
 public class ConsoleApplication {
+    private static final Logger LOGGER = LoggerFactory.getLogger(ConsoleApplication.class);
     private final CampusGraph graph;
     private final PersistenceService persistenceService;
     private final AuthService authService;
@@ -46,13 +49,13 @@ public class ConsoleApplication {
     }
 
     public void run() {
-        System.out.println("欢迎使用校园智能路径规划导航系统");
+        LOGGER.info("欢迎使用校园智能路径规划导航系统");
         try {
             while (true) {
                 printMainMenu();
                 int choice = readIntInRange("请选择菜单编号", 0, 2);
                 if (choice == 0) {
-                    System.out.println("系统已退出，感谢使用。");
+                    LOGGER.info("系统已退出，感谢使用。");
                     return;
                 }
                 if (choice == 1) {
@@ -62,26 +65,26 @@ public class ConsoleApplication {
                 }
             }
         } catch (InputClosedException ex) {
-            System.out.println();
-            System.out.println("检测到输入流结束，系统自动退出。");
+            LOGGER.info("");
+            LOGGER.info("检测到输入流结束，系统自动退出。");
         }
     }
 
     private void printMainMenu() {
-        System.out.println();
-        System.out.println("===== 主菜单 =====");
-        System.out.println("1. 普通用户");
-        System.out.println("2. 管理员");
-        System.out.println("0. 退出系统");
+        LOGGER.info("");
+        LOGGER.info("===== 主菜单 =====");
+        LOGGER.info("1. 普通用户");
+        LOGGER.info("2. 管理员");
+        LOGGER.info("0. 退出系统");
     }
 
     private void runUserMenu() {
         while (true) {
-            System.out.println();
-            System.out.println("===== 用户菜单 =====");
-            System.out.println("1. 路径查询");
-            System.out.println("2. 地点查看");
-            System.out.println("0. 返回主菜单");
+            LOGGER.info("");
+            LOGGER.info("===== 用户菜单 =====");
+            LOGGER.info("1. 路径查询");
+            LOGGER.info("2. 地点查看");
+            LOGGER.info("0. 返回主菜单");
             int choice = readIntInRange("请选择菜单编号", 0, 2);
             if (choice == 0) {
                 return;
@@ -100,13 +103,13 @@ public class ConsoleApplication {
             return;
         }
         while (true) {
-            System.out.println();
-            System.out.println("===== 管理员菜单 =====");
-            System.out.println("1. 地点管理");
-            System.out.println("2. 道路管理");
-            System.out.println("3. 禁行设置");
-            System.out.println("4. 地图概览");
-            System.out.println("0. 退出管理员菜单");
+            LOGGER.info("");
+            LOGGER.info("===== 管理员菜单 =====");
+            LOGGER.info("1. 地点管理");
+            LOGGER.info("2. 道路管理");
+            LOGGER.info("3. 禁行设置");
+            LOGGER.info("4. 地图概览");
+            LOGGER.info("0. 退出管理员菜单");
             int choice = readIntInRange("请选择菜单编号", 0, 4);
             if (choice == 0) {
                 return;
@@ -125,8 +128,8 @@ public class ConsoleApplication {
 
     private Admin loginAdminWithRetry() {
         while (true) {
-            System.out.println();
-            System.out.println("===== 管理员登录 =====");
+            LOGGER.info("");
+            LOGGER.info("===== 管理员登录 =====");
             String username = readNonBlank("请输入管理员账号（输入0返回）");
             if ("0".equals(username)) {
                 return null;
@@ -134,19 +137,19 @@ public class ConsoleApplication {
             String password = readNonBlank("请输入管理员密码");
             try {
                 Admin admin = authService.loginAdmin(username, password);
-                System.out.println("登录成功，欢迎：" + admin.getUsername());
+                LOGGER.info("登录成功，欢迎：" + admin.getUsername());
                 return admin;
             } catch (AuthenticationException ex) {
-                System.out.println("登录失败：" + ex.getMessage() + " 请重试。");
+                LOGGER.info("登录失败：" + ex.getMessage() + " 请重试。");
             } catch (RuntimeException ex) {
-                System.out.println("登录失败：" + ex.getMessage());
+                LOGGER.info("登录失败：" + ex.getMessage());
             }
         }
     }
 
     private void handlePathQuery() {
         if (graph.vertexCount() == 0) {
-            System.out.println("当前地图无地点数据，无法查询路径。");
+            LOGGER.info("当前地图无地点数据，无法查询路径。");
             return;
         }
         printVertexList(mapService.listVertices());
@@ -154,21 +157,21 @@ public class ConsoleApplication {
         String endId = readExistingVertexId("请输入终点ID");
         try {
             PathResult result = navigationService.navigate(graph, startId, endId);
-            System.out.println(pathFormatter.format(result));
+            LOGGER.info(pathFormatter.format(result));
         } catch (NoRouteFoundException ex) {
-            System.out.println("路径不可达：" + ex.getMessage());
+            LOGGER.info("路径不可达：" + ex.getMessage());
         } catch (RuntimeException ex) {
-            System.out.println("路径查询失败：" + ex.getMessage());
+            LOGGER.info("路径查询失败：" + ex.getMessage());
         }
     }
 
     private void handlePlaceView() {
         while (true) {
-            System.out.println();
-            System.out.println("===== 地点查看 =====");
-            System.out.println("1. 查看全部地点");
-            System.out.println("2. 按类型筛选");
-            System.out.println("0. 返回");
+            LOGGER.info("");
+            LOGGER.info("===== 地点查看 =====");
+            LOGGER.info("1. 查看全部地点");
+            LOGGER.info("2. 按类型筛选");
+            LOGGER.info("0. 返回");
             int choice = readIntInRange("请选择菜单编号", 0, 2);
             if (choice == 0) {
                 return;
@@ -184,13 +187,13 @@ public class ConsoleApplication {
 
     private void handleVertexManage(Admin admin) {
         while (true) {
-            System.out.println();
-            System.out.println("===== 地点管理 =====");
-            System.out.println("1. 新增地点");
-            System.out.println("2. 修改地点");
-            System.out.println("3. 删除地点");
-            System.out.println("4. 查看地点列表");
-            System.out.println("0. 返回");
+            LOGGER.info("");
+            LOGGER.info("===== 地点管理 =====");
+            LOGGER.info("1. 新增地点");
+            LOGGER.info("2. 修改地点");
+            LOGGER.info("3. 删除地点");
+            LOGGER.info("4. 查看地点列表");
+            LOGGER.info("0. 返回");
             int choice = readIntInRange("请选择菜单编号", 0, 4);
             if (choice == 0) {
                 return;
@@ -200,36 +203,36 @@ public class ConsoleApplication {
                     Vertex vertex = readVertexInput(null);
                     mapService.addVertex(admin, vertex);
                     persistGraph();
-                    System.out.println("新增地点成功。");
+                    LOGGER.info("新增地点成功。");
                 } else if (choice == 2) {
                     String id = readExistingVertexId("请输入需要修改的地点ID");
                     Vertex vertex = readVertexInput(id);
                     mapService.updateVertex(admin, vertex);
                     persistGraph();
-                    System.out.println("修改地点成功。");
+                    LOGGER.info("修改地点成功。");
                 } else if (choice == 3) {
                     String id = readExistingVertexId("请输入需要删除的地点ID");
                     mapService.deleteVertex(admin, id);
                     persistGraph();
-                    System.out.println("删除地点成功。");
+                    LOGGER.info("删除地点成功。");
                 } else {
                     printVertexList(mapService.listVertices());
                 }
             } catch (RuntimeException ex) {
-                System.out.println("操作失败：" + ex.getMessage());
+                LOGGER.info("操作失败：" + ex.getMessage());
             }
         }
     }
 
     private void handleRoadManage(Admin admin) {
         while (true) {
-            System.out.println();
-            System.out.println("===== 道路管理 =====");
-            System.out.println("1. 新增道路");
-            System.out.println("2. 修改道路");
-            System.out.println("3. 删除道路");
-            System.out.println("4. 查看道路列表");
-            System.out.println("0. 返回");
+            LOGGER.info("");
+            LOGGER.info("===== 道路管理 =====");
+            LOGGER.info("1. 新增道路");
+            LOGGER.info("2. 修改道路");
+            LOGGER.info("3. 删除道路");
+            LOGGER.info("4. 查看道路列表");
+            LOGGER.info("0. 返回");
             int choice = readIntInRange("请选择菜单编号", 0, 4);
             if (choice == 0) {
                 return;
@@ -239,35 +242,35 @@ public class ConsoleApplication {
                     RoadInput input = readRoadInput();
                     mapService.addRoad(admin, input.fromId, input.toId, input.weight, input.oneWay, input.forbidden, input.roadType);
                     persistGraph();
-                    System.out.println("新增道路成功。");
+                    LOGGER.info("新增道路成功。");
                 } else if (choice == 2) {
                     RoadInput input = readRoadInput();
                     mapService.updateRoad(admin, input.fromId, input.toId, input.weight, input.oneWay, input.forbidden, input.roadType);
                     persistGraph();
-                    System.out.println("修改道路成功。");
+                    LOGGER.info("修改道路成功。");
                 } else if (choice == 3) {
                     String fromId = readExistingVertexId("请输入道路起点ID");
                     String toId = readExistingVertexId("请输入道路终点ID");
                     mapService.deleteRoad(admin, fromId, toId);
                     persistGraph();
-                    System.out.println("删除道路成功。");
+                    LOGGER.info("删除道路成功。");
                 } else {
                     printRoadList(mapService.listRoads());
                 }
             } catch (RuntimeException ex) {
-                System.out.println("操作失败：" + ex.getMessage());
+                LOGGER.info("操作失败：" + ex.getMessage());
             }
         }
     }
 
     private void handleForbiddenManage(Admin admin) {
         while (true) {
-            System.out.println();
-            System.out.println("===== 禁行设置 =====");
-            System.out.println("1. 设置禁行");
-            System.out.println("2. 解除禁行");
-            System.out.println("3. 查看道路列表");
-            System.out.println("0. 返回");
+            LOGGER.info("");
+            LOGGER.info("===== 禁行设置 =====");
+            LOGGER.info("1. 设置禁行");
+            LOGGER.info("2. 解除禁行");
+            LOGGER.info("3. 查看道路列表");
+            LOGGER.info("0. 返回");
             int choice = readIntInRange("请选择菜单编号", 0, 3);
             if (choice == 0) {
                 return;
@@ -278,18 +281,18 @@ public class ConsoleApplication {
                     String toId = readExistingVertexId("请输入道路终点ID");
                     mapService.disableRoad(admin, fromId, toId);
                     persistGraph();
-                    System.out.println("禁行设置成功。");
+                    LOGGER.info("禁行设置成功。");
                 } else if (choice == 2) {
                     String fromId = readExistingVertexId("请输入道路起点ID");
                     String toId = readExistingVertexId("请输入道路终点ID");
                     mapService.enableRoad(admin, fromId, toId);
                     persistGraph();
-                    System.out.println("禁行解除成功。");
+                    LOGGER.info("禁行解除成功。");
                 } else {
                     printRoadList(mapService.listRoads());
                 }
             } catch (RuntimeException ex) {
-                System.out.println("操作失败：" + ex.getMessage());
+                LOGGER.info("操作失败：" + ex.getMessage());
             }
         }
     }
@@ -302,33 +305,33 @@ public class ConsoleApplication {
                 forbiddenCount++;
             }
         }
-        System.out.println("当前地点数量：" + graph.vertexCount());
-        System.out.println("当前道路数量：" + graph.edgeCount());
-        System.out.println("禁行道路数量：" + forbiddenCount);
+        LOGGER.info("当前地点数量：" + graph.vertexCount());
+        LOGGER.info("当前道路数量：" + graph.edgeCount());
+        LOGGER.info("禁行道路数量：" + forbiddenCount);
     }
 
     private void printVertexList(List<Vertex> vertices) {
-        System.out.println();
-        System.out.println("----- 地点列表 -----");
+        LOGGER.info("");
+        LOGGER.info("----- 地点列表 -----");
         if (vertices.isEmpty()) {
-            System.out.println("暂无地点数据。");
+            LOGGER.info("暂无地点数据。");
             return;
         }
         for (Vertex vertex : vertices) {
-            System.out.println(vertex.getId() + " | " + vertex.getName() + " | " + vertex.getType()
+            LOGGER.info(vertex.getId() + " | " + vertex.getName() + " | " + vertex.getType()
                     + " | (" + vertex.getX() + ", " + vertex.getY() + ")");
         }
     }
 
     private void printRoadList(List<Edge> roads) {
-        System.out.println();
-        System.out.println("----- 道路列表 -----");
+        LOGGER.info("");
+        LOGGER.info("----- 道路列表 -----");
         if (roads.isEmpty()) {
-            System.out.println("暂无道路数据。");
+            LOGGER.info("暂无道路数据。");
             return;
         }
         for (Edge edge : roads) {
-            System.out.println(edge.getFromVertex().getId() + " -> " + edge.getToVertex().getId()
+            LOGGER.info(edge.getFromVertex().getId() + " -> " + edge.getToVertex().getId()
                     + " | " + edge.getWeight() + "m"
                     + " | oneWay=" + edge.isOneWay()
                     + " | forbidden=" + edge.isForbidden()
@@ -362,15 +365,15 @@ public class ConsoleApplication {
             if (graph.containsVertex(id)) {
                 return id;
             }
-            System.out.println("输入的地点ID不存在，请重新输入。");
+            LOGGER.info("输入的地点ID不存在，请重新输入。");
         }
     }
 
     private PlaceType readPlaceType() {
         PlaceType[] values = PlaceType.values();
-        System.out.println("地点类型：");
+        LOGGER.info("地点类型：");
         for (int i = 0; i < values.length; i++) {
-            System.out.println((i + 1) + ". " + values[i].name());
+            LOGGER.info((i + 1) + ". " + values[i].name());
         }
         int index = readIntInRange("请选择地点类型", 1, values.length);
         return values[index - 1];
@@ -378,9 +381,9 @@ public class ConsoleApplication {
 
     private RoadType readRoadType() {
         RoadType[] values = RoadType.values();
-        System.out.println("道路类型：");
+        LOGGER.info("道路类型：");
         for (int i = 0; i < values.length; i++) {
-            System.out.println((i + 1) + ". " + values[i].name());
+            LOGGER.info((i + 1) + ". " + values[i].name());
         }
         int index = readIntInRange("请选择道路类型", 1, values.length);
         return values[index - 1];
@@ -392,12 +395,12 @@ public class ConsoleApplication {
             try {
                 int value = Integer.parseInt(raw.trim());
                 if (value < min || value > max) {
-                    System.out.println("输入超出范围，请重新输入。");
+                    LOGGER.info("输入超出范围，请重新输入。");
                     continue;
                 }
                 return value;
             } catch (NumberFormatException ex) {
-                System.out.println("请输入有效数字。");
+                LOGGER.info("请输入有效数字。");
             }
         }
     }
@@ -408,7 +411,7 @@ public class ConsoleApplication {
             try {
                 return Double.parseDouble(raw.trim());
             } catch (NumberFormatException ex) {
-                System.out.println("请输入有效数字。");
+                LOGGER.info("请输入有效数字。");
             }
         }
     }
@@ -419,7 +422,7 @@ public class ConsoleApplication {
             if (value > 0) {
                 return value;
             }
-            System.out.println("请输入大于0的数值。");
+            LOGGER.info("请输入大于0的数值。");
         }
     }
 
@@ -432,7 +435,7 @@ public class ConsoleApplication {
             if ("n".equals(value) || "no".equals(value) || "0".equals(value)) {
                 return false;
             }
-            System.out.println("请输入 y 或 n。");
+            LOGGER.info("请输入 y 或 n。");
         }
     }
 
@@ -442,7 +445,7 @@ public class ConsoleApplication {
             if (!value.trim().isEmpty()) {
                 return value.trim();
             }
-            System.out.println("输入不能为空，请重新输入。");
+            LOGGER.info("输入不能为空，请重新输入。");
         }
     }
 
